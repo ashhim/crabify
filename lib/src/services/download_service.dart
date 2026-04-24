@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 
 import '../models/music_track.dart';
@@ -33,6 +34,16 @@ class DownloadService {
     await _storageService.deleteIfExists(tempPath);
     await _storageService.deleteIfExists(targetPath);
 
+    final sourceType = track.hasValidLocalSource ? 'file' : 'url';
+    debugPrint(
+      '[Download] Starting'
+      ' | trackId=${track.id}'
+      ' | title=${track.title}'
+      ' | sourceType=$sourceType'
+      ' | source=$sourceUrl'
+      ' | target=$targetPath',
+    );
+
     try {
       await _dio.download(
         sourceUrl,
@@ -55,6 +66,10 @@ class DownloadService {
       );
 
       await File(tempPath).rename(targetPath);
+      if (!await File(targetPath).exists()) {
+        throw const FileSystemException('Downloaded file could not be verified.');
+      }
+      onProgress?.call(1);
     } on DioException catch (error) {
       await _storageService.deleteIfExists(tempPath);
       throw StateError(
@@ -69,6 +84,13 @@ class DownloadService {
       await _storageService.deleteIfExists(tempPath);
       throw StateError('Crabify could not save ${track.title} offline: $error');
     }
+
+    debugPrint(
+      '[Download] Completed'
+      ' | trackId=${track.id}'
+      ' | title=${track.title}'
+      ' | target=$targetPath',
+    );
 
     String? localArtworkPath = track.artworkPath;
     if (localArtworkPath == null &&

@@ -52,7 +52,8 @@ class MusicTrack {
       durationSeconds == null ? null : Duration(seconds: durationSeconds!);
 
   bool get hasValidId => id.trim().isNotEmpty;
-  bool get isLocal => localPath != null && localPath!.isNotEmpty;
+  bool get isLocal => localPath != null && localPath!.trim().isNotEmpty;
+  bool get hasValidLocalSource => isLocal;
   bool get isAudiusStreamEndpoint =>
       (streamUrl ?? '').startsWith('https://api.audius.co/v1/tracks/');
   bool get hasValidAudiusTrackId =>
@@ -75,7 +76,7 @@ class MusicTrack {
   }
 
   bool get isRemote => hasValidRemoteSource;
-  bool get isPlayable => isLocal || isRemote;
+  bool get isPlayable => hasValidLocalSource || isRemote;
   bool get isOfflineAvailable => isLocal;
 
   String get subtitle {

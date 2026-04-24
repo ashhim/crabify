@@ -33,6 +33,21 @@ void main() {
     expect(invalidAudiusTrack.isPlayable, isFalse);
   });
 
+  test('MusicTrack treats non-empty local paths as playable local sources', () {
+    const localTrack = MusicTrack(
+      id: 'local-1',
+      title: 'Offline',
+      artistName: 'Crabify',
+      artistId: 'crabify',
+      albumTitle: 'Local',
+      origin: TrackOrigin.local,
+      localPath: r'C:\music\offline.mp3',
+    );
+
+    expect(localTrack.hasValidLocalSource, isTrue);
+    expect(localTrack.isPlayable, isTrue);
+  });
+
   test('Audius upload falls back to local-only success without a proxy', () async {
     final service = AudiusApiService();
     const draft = UploadDraft(

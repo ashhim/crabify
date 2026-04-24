@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../models/music_track.dart';
@@ -407,6 +409,8 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   Future<void> _initialize() async {
+    debugPrint('[Audio] Initializing player on $_platformLabel');
+
     _subscriptions.add(
       _player.positionStream.listen((position) {
         _position = position;
@@ -429,6 +433,28 @@ class AudioPlayerService extends ChangeNotifier {
     );
 
     _subscriptions.add(
+      _player.errorStream.listen((error) {
+        final track = currentTrack;
+        debugPrint(
+          '[Audio] Player error'
+          ' | platform=$_platformLabel'
+          ' | trackId=${track?.id ?? 'none'}'
+          ' | title=${track?.title ?? 'none'}'
+          ' | sourceType=${track == null ? 'none' : _sourceTypeForTrack(track)}'
+          ' | source=${track == null ? 'n/a' : _streamOrPathForTrack(track)}'
+          ' | error=$error',
+        );
+        _recordError(
+          _messageForCommandFailure(
+            error,
+            action: 'play this track',
+            track: track,
+          ),
+        );
+      }),
+    );
+
+    _subscriptions.add(
       _player.playerStateStream.listen((state) {
         _isPlaying = state.playing;
         _processingState = state.processingState;
@@ -443,7 +469,11 @@ class AudioPlayerService extends ChangeNotifier {
       }),
     );
 
-    debugPrint('[Audio] Player initialized. state=$_processingState');
+    debugPrint(
+      '[Audio] Player initialized.'
+      ' platform=$_platformLabel'
+      ' state=$_processingState',
+    );
   }
 
   Future<void> _handleTrackCompletion() async {
@@ -508,19 +538,22 @@ class AudioPlayerService extends ChangeNotifier {
       throw StateError('Track ${track.title} is not playable.');
     }
 
-    final source = _sourceForTrack(track);
     final trackKey = _trackLoadKey(track);
     final shouldReload =
         forceReload || _loadedTrackKey != trackKey || _processingState == ProcessingState.idle;
+    final sourceType = _sourceTypeForTrack(track);
+    final source = _streamOrPathForTrack(track);
 
     debugPrint(
       '[Audio] Loading track'
       ' | id=${track.id}'
       ' | title=${track.title}'
-      ' | stream=${_streamUrlForTrack(track)}'
+      ' | sourceType=$sourceType'
+      ' | source=$source'
       ' | queueLength=${_queue.length}'
       ' | currentIndex=$_currentIndex'
       ' | playerState=$_processingState'
+      ' | platform=$_platformLabel'
       ' | reason=$reason',
     );
 
@@ -530,44 +563,88 @@ class AudioPlayerService extends ChangeNotifier {
       _bufferedPosition = Duration.zero;
       _duration = track.duration;
       notifyListeners();
-      await _player.setAudioSource(source);
+      final tag = _mediaItemForTrack(track);
+      Duration? loadedDuration;
+      if (track.hasValidLocalSource) {
+        final filePath = track.localPath!.trim();
+        final file = File(filePath);
+        if (!await file.exists()) {
+          throw StateError(
+            'The local audio file for ${track.title} is missing from $filePath.',
+          );
+        }
+        debugPrint(
+          '[Audio] setFilePath'
+          ' | platform=$_platformLabel'
+          ' | trackId=${track.id}'
+          ' | title=${track.title}'
+          ' | path=$filePath',
+        );
+        loadedDuration = await _player.setFilePath(filePath, tag: tag);
+      } else {
+        final streamUrl = _audiusApiService.resolveStreamUrl(track).trim();
+        debugPrint(
+          '[Audio] setUrl'
+          ' | platform=$_platformLabel'
+          ' | trackId=${track.id}'
+          ' | title=${track.title}'
+          ' | url=$streamUrl',
+        );
+        loadedDuration = await _player.setUrl(streamUrl, tag: tag);
+      }
+      _duration = loadedDuration ?? track.duration;
       _loadedTrackKey = trackKey;
+      notifyListeners();
     }
 
     if (autoPlay) {
+      debugPrint(
+        '[Audio] play'
+        ' | platform=$_platformLabel'
+        ' | trackId=${track.id}'
+        ' | title=${track.title}'
+        ' | sourceType=$sourceType'
+        ' | source=$source',
+      );
       await _player.play();
     }
   }
 
-  AudioSource _sourceForTrack(MusicTrack track) {
-    final uri = track.isLocal
-        ? Uri.file(track.localPath!)
-        : Uri.parse(_streamUrlForTrack(track));
+  MediaItem _mediaItemForTrack(MusicTrack track) {
     final artUri = switch ((track.artworkPath, track.artworkUrl)) {
       (String path, _) when path.isNotEmpty => Uri.file(path),
       (_, String url) when url.isNotEmpty => Uri.parse(url),
       _ => null,
     };
 
-    return AudioSource.uri(
-      uri,
-      tag: MediaItem(
-        id: track.id,
-        album: track.albumTitle,
-        title: track.title,
-        artist: track.artistName,
-        artUri: artUri,
-        playable: true,
-      ),
+    return MediaItem(
+      id: track.id,
+      album: track.albumTitle,
+      title: track.title,
+      artist: track.artistName,
+      artUri: artUri,
+      playable: true,
     );
   }
 
+  String _sourceTypeForTrack(MusicTrack track) {
+    return track.hasValidLocalSource ? 'file' : 'url';
+  }
+
+  String _streamOrPathForTrack(MusicTrack track) {
+    return track.hasValidLocalSource
+        ? track.localPath!.trim()
+        : _streamUrlForTrack(track);
+  }
+
   String _streamUrlForTrack(MusicTrack track) {
-    return track.isLocal ? track.localPath! : _audiusApiService.resolveStreamUrl(track);
+    return track.hasValidLocalSource
+        ? track.localPath!.trim()
+        : _audiusApiService.resolveStreamUrl(track).trim();
   }
 
   String _trackLoadKey(MusicTrack track) {
-    return track.isLocal
+    return track.hasValidLocalSource
         ? '${track.id}:${track.localPath}'
         : '${track.id}:${_audiusApiService.resolveStreamUrl(track)}';
   }
@@ -582,11 +659,11 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   bool _canQueueTrack(MusicTrack track) {
-    if (!track.isPlayable || !track.hasValidId) {
+    if (!track.hasValidId) {
       return false;
     }
 
-    if (track.isLocal) {
+    if (track.hasValidLocalSource) {
       return true;
     }
 
@@ -712,10 +789,12 @@ class AudioPlayerService extends ChangeNotifier {
             '[Audio] Starting $action'
             ' | trackId=${subject?.id ?? 'none'}'
             ' | title=${subject?.title ?? 'none'}'
-            ' | streamUrl=${subject == null ? 'n/a' : _streamUrlForTrack(subject)}'
+            ' | sourceType=${subject == null ? 'none' : _sourceTypeForTrack(subject)}'
+            ' | source=${subject == null ? 'n/a' : _streamOrPathForTrack(subject)}'
             ' | queueLength=${_queue.length}'
             ' | currentIndex=$_currentIndex'
             ' | playerState=$_processingState'
+            ' | platform=$_platformLabel'
             ' | isPlaying=$_isPlaying',
           );
 
@@ -726,6 +805,7 @@ class AudioPlayerService extends ChangeNotifier {
               ' | trackId=${subject?.id ?? 'none'}'
               ' | queueLength=${_queue.length}'
               ' | playerState=$_processingState'
+              ' | platform=$_platformLabel'
               ' | isPlaying=$_isPlaying',
             );
             completer.complete(result);
@@ -734,13 +814,22 @@ class AudioPlayerService extends ChangeNotifier {
               '[Audio] Failed to $action'
               ' | trackId=${subject?.id ?? 'none'}'
               ' | title=${subject?.title ?? 'none'}'
-              ' | streamUrl=${subject == null ? 'n/a' : _streamUrlForTrack(subject)}'
+              ' | sourceType=${subject == null ? 'none' : _sourceTypeForTrack(subject)}'
+              ' | source=${subject == null ? 'n/a' : _streamOrPathForTrack(subject)}'
               ' | queueLength=${_queue.length}'
               ' | playerState=$_processingState'
+              ' | platform=$_platformLabel'
               ' | exception=$error',
             );
             debugPrint('$stackTrace');
-            _recordError(failureMessage ?? 'Unable to $action right now.');
+            _recordError(
+              _messageForCommandFailure(
+                error,
+                action: action,
+                track: subject,
+                fallbackMessage: failureMessage,
+              ),
+            );
             completer.complete(null);
           } finally {
             _isBusy = false;
@@ -776,13 +865,99 @@ class AudioPlayerService extends ChangeNotifier {
     }
   }
 
+  String get _platformLabel {
+    if (kIsWeb) {
+      return 'web';
+    }
+    if (Platform.isWindows) {
+      return 'windows';
+    }
+    if (Platform.isAndroid) {
+      return 'android';
+    }
+    if (Platform.isIOS) {
+      return 'ios';
+    }
+    if (Platform.isMacOS) {
+      return 'macos';
+    }
+    if (Platform.isLinux) {
+      return 'linux';
+    }
+    return 'unknown';
+  }
+
+  String _messageForCommandFailure(
+    Object error, {
+    required String action,
+    MusicTrack? track,
+    String? fallbackMessage,
+  }) {
+    final trackLabel = track == null ? 'this track' : track.title;
+
+    if (error is MissingPluginException ||
+        error.toString().contains('MissingPluginException')) {
+      return 'Audio playback is not ready on $_platformLabel yet. '
+          'Run `flutter pub get`, rebuild Crabify, and make sure the '
+          'desktop just_audio backend is registered.';
+    }
+
+    if (error is PlayerException) {
+      final detail = _cleanErrorText(error.message);
+      return detail.isEmpty
+          ? 'Crabify could not $action for $trackLabel.'
+          : 'Crabify could not $action for $trackLabel: $detail';
+    }
+
+    if (error is PlayerInterruptedException) {
+      final detail = _cleanErrorText(error.message);
+      return detail.isEmpty
+          ? 'Playback for $trackLabel was interrupted while loading.'
+          : 'Playback for $trackLabel was interrupted while loading: $detail';
+    }
+
+    if (error is FileSystemException) {
+      final detail = _cleanErrorText(error.message);
+      return detail.isEmpty
+          ? 'Crabify could not open the local file for $trackLabel.'
+          : 'Crabify could not open the local file for $trackLabel: $detail';
+    }
+
+    final detail = _cleanErrorText(error.toString());
+    if (detail.isNotEmpty) {
+      return detail;
+    }
+
+    return fallbackMessage ?? 'Unable to $action right now.';
+  }
+
+  String _cleanErrorText(String? raw) {
+    final text = raw?.trim() ?? '';
+    if (text.isEmpty) {
+      return '';
+    }
+    return text
+        .replaceFirst('Bad state: ', '')
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('Invalid argument(s): ', '');
+  }
+
   @override
   void dispose() {
     _disposed = true;
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }
-    _player.dispose();
+    unawaited(
+      _player.dispose().catchError((Object error, StackTrace stackTrace) {
+        debugPrint(
+          '[Audio] Failed to dispose player'
+          ' | platform=$_platformLabel'
+          ' | exception=$error',
+        );
+        debugPrint('$stackTrace');
+      }),
+    );
     super.dispose();
   }
 }

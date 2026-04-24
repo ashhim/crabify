@@ -266,7 +266,13 @@ class LibraryService extends ChangeNotifier {
     bool shuffle = false,
   }) async {
     final playableTracks =
-        tracks.where((track) => track.isPlayable && track.hasValidId).toList();
+        tracks
+            .where(
+              (track) =>
+                  track.hasValidId &&
+                  (track.hasValidLocalSource || track.hasValidRemoteSource),
+            )
+            .toList();
     if (playableTracks.isEmpty) {
       debugPrint('[Audio] No valid tracks were provided for playback.');
       return;

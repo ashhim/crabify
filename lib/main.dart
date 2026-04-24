@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 
 import 'src/app.dart';
 import 'src/services/audio_player_service.dart';
@@ -13,6 +14,11 @@ import 'src/services/local_storage_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (!kIsWeb && Platform.isWindows) {
+    JustAudioMediaKit.ensureInitialized(windows: true, linux: false);
+    debugPrint('[Audio] JustAudioMediaKit initialized for Windows.');
+  }
 
   if (!kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS)) {
     await JustAudioBackground.init(
