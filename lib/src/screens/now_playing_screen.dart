@@ -34,6 +34,8 @@ class NowPlayingScreen extends StatelessWidget {
                 : audio.duration.inMilliseconds;
         final currentValue = audio.position.inMilliseconds.clamp(0, total);
         final progress = library.progressFor(track.id);
+        final busyForCurrentTrack =
+            audio.isBusy && audio.activeTrackId == track.id;
 
         return Scaffold(
           backgroundColor: CrabifyColors.background,
@@ -110,8 +112,21 @@ class NowPlayingScreen extends StatelessWidget {
                     ),
                     IconButton(
                       onPressed:
-                          track.downloadable && !library.isDownloaded(track.id)
-                              ? () => library.downloadTrack(track)
+                          track.downloadable &&
+                                  !library.isDownloaded(track.id) &&
+                                  progress == null
+                              ? () async {
+                                try {
+                                  await library.downloadTrack(track);
+                                } catch (error) {
+                                  if (!context.mounted) {
+                                    return;
+                                  }
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(error.toString())),
+                                  );
+                                }
+                              }
                               : null,
                       icon:
                           progress != null
@@ -130,14 +145,52 @@ class NowPlayingScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (audio.lastErrorMessage != null) ...<Widget>[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: CrabifyColors.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: CrabifyColors.border),
+                    ),
+                    child: Text(
+                      audio.lastErrorMessage!,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFFFFB4A5),
+                      ),
+                    ),
+                  ),
+                ],
+                if (busyForCurrentTrack) ...<Widget>[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: <Widget>[
+                      const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Loading ${track.title}...',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: CrabifyColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 18),
                 Slider(
                   value: currentValue.toDouble(),
                   min: 0,
                   max: total.toDouble(),
                   onChanged:
-                      (value) =>
-                          audio.seek(Duration(milliseconds: value.round())),
+                      busyForCurrentTrack
+                          ? null
+                          : (value) => audio.seek(
+                            Duration(milliseconds: value.round()),
+                          ),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -164,7 +217,7 @@ class NowPlayingScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: <Widget>[
                     IconButton(
-                      onPressed: audio.toggleShuffle,
+                      onPressed: busyForCurrentTrack ? null : audio.toggleShuffle,
                       icon: Icon(
                         Icons.shuffle_rounded,
                         color:
@@ -174,31 +227,42 @@ class NowPlayingScreen extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      onPressed: audio.previous,
+                      onPressed: busyForCurrentTrack ? null : audio.previous,
                       iconSize: 36,
                       icon: const Icon(Icons.skip_previous_rounded),
                     ),
                     IconButton.filled(
-                      onPressed: audio.togglePlayback,
+                      onPressed:
+                          busyForCurrentTrack ? null : audio.togglePlayback,
                       style: IconButton.styleFrom(
                         backgroundColor: CrabifyColors.textPrimary,
                         foregroundColor: Colors.black,
                         fixedSize: const Size.square(72),
                       ),
-                      icon: Icon(
-                        audio.isPlaying
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                        size: 40,
-                      ),
+                      icon:
+                          busyForCurrentTrack
+                              ? const SizedBox.square(
+                                dimension: 30,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.6,
+                                  color: Colors.black,
+                                ),
+                              )
+                              : Icon(
+                                audio.isPlaying
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                                size: 40,
+                              ),
                     ),
                     IconButton(
-                      onPressed: audio.next,
+                      onPressed: busyForCurrentTrack ? null : audio.next,
                       iconSize: 36,
                       icon: const Icon(Icons.skip_next_rounded),
                     ),
                     IconButton(
-                      onPressed: audio.cycleLoopMode,
+                      onPressed:
+                          busyForCurrentTrack ? null : audio.cycleLoopMode,
                       icon: Icon(
                         audio.loopMode == LoopMode.off
                             ? Icons.repeat_rounded

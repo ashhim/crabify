@@ -22,6 +22,16 @@ class MiniPlayer extends StatelessWidget {
     if (track == null) {
       return const SizedBox.shrink();
     }
+    final busyForCurrentTrack =
+        audioPlayerService.isBusy &&
+        audioPlayerService.activeTrackId == track.id;
+    final subtitle =
+        audioPlayerService.lastErrorMessage ??
+        (busyForCurrentTrack ? 'Connecting to audio...' : null);
+    final subtitleColor =
+        audioPlayerService.lastErrorMessage != null
+            ? const Color(0xFFFFB4A5)
+            : CrabifyColors.textSecondary;
 
     final progress =
         audioPlayerService.duration.inMilliseconds == 0
@@ -57,22 +67,39 @@ class MiniPlayer extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   const SizedBox(width: 12),
-                  Expanded(child: _TrackText(track: track)),
-                  IconButton(
-                    onPressed: audioPlayerService.previous,
-                    icon: const Icon(Icons.skip_previous_rounded),
-                  ),
-                  IconButton(
-                    onPressed: audioPlayerService.togglePlayback,
-                    icon: Icon(
-                      audioPlayerService.isPlaying
-                          ? Icons.pause_circle_filled_rounded
-                          : Icons.play_circle_fill_rounded,
-                      size: 34,
+                  Expanded(
+                    child: _TrackText(
+                      track: track,
+                      statusMessage: subtitle,
+                      statusColor: subtitleColor,
                     ),
                   ),
                   IconButton(
-                    onPressed: audioPlayerService.next,
+                    onPressed:
+                        busyForCurrentTrack ? null : audioPlayerService.previous,
+                    icon: const Icon(Icons.skip_previous_rounded),
+                  ),
+                  if (busyForCurrentTrack)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8),
+                      child: SizedBox.square(
+                        dimension: 26,
+                        child: CircularProgressIndicator(strokeWidth: 2.3),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      onPressed: audioPlayerService.togglePlayback,
+                      icon: Icon(
+                        audioPlayerService.isPlaying
+                            ? Icons.pause_circle_filled_rounded
+                            : Icons.play_circle_fill_rounded,
+                        size: 34,
+                      ),
+                    ),
+                  IconButton(
+                    onPressed:
+                        busyForCurrentTrack ? null : audioPlayerService.next,
                     icon: const Icon(Icons.skip_next_rounded),
                   ),
                 ],
@@ -86,9 +113,15 @@ class MiniPlayer extends StatelessWidget {
 }
 
 class _TrackText extends StatelessWidget {
-  const _TrackText({required this.track});
+  const _TrackText({
+    required this.track,
+    this.statusMessage,
+    this.statusColor = CrabifyColors.textSecondary,
+  });
 
   final MusicTrack track;
+  final String? statusMessage;
+  final Color statusColor;
 
   @override
   Widget build(BuildContext context) {
@@ -106,12 +139,14 @@ class _TrackText extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          track.artistName,
+          statusMessage ?? track.artistName,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(
             context,
-          ).textTheme.bodySmall?.copyWith(color: CrabifyColors.textSecondary),
+          ).textTheme.bodySmall?.copyWith(
+            color: statusMessage == null ? CrabifyColors.textSecondary : statusColor,
+          ),
         ),
       ],
     );

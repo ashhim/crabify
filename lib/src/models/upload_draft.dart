@@ -26,3 +26,15 @@ class UploadDraft {
       audioFilePath.trim().isNotEmpty &&
       rightsConfirmed;
 }
+
+class UploadSubmissionResult {
+  const UploadSubmissionResult({
+    required this.submittedRemotely,
+    required this.message,
+    this.remoteTrackId,
+  });
+
+  final bool submittedRemotely;
+  final String message;
+  final String? remoteTrackId;
+}

@@ -94,26 +94,6 @@ class AudiusApiService {
     return discovered;
   }
 
-  Future<String> fetchFreshStreamUrl(MusicTrack track) async {
-    await discoverProviderUrl();
-    final baseUrl = seedBaseUrl;
-    final response = await _dio.get<Map<String, dynamic>>(
-      '$baseUrl/v1/tracks/${track.id}/stream',
-      queryParameters: const <String, dynamic>{'no_redirect': true},
-      options: Options(headers: _headers),
-    );
-
-    final url = response.data?['data'] as String?;
-    if (url == null || url.isEmpty) {
-      throw StateError(
-        'Audius did not return a stream URL for ${track.title}.',
-      );
-    }
-
-    debugPrint('[Audius] Fresh stream URL resolved for ${track.id}');
-    return url;
-  }
-
   String resolveStreamUrlById(String trackId) {
     return Uri(
       scheme: 'https',
@@ -126,9 +106,13 @@ class AudiusApiService {
     return resolveStreamUrlById(track.id);
   }
 
-  Future<bool> submitUpload(UploadDraft draft) async {
+  Future<UploadSubmissionResult> submitUpload(UploadDraft draft) async {
     if (!hasUploadProxy) {
-      return false;
+      return const UploadSubmissionResult(
+        submittedRemotely: false,
+        message:
+            'Track saved locally in Crabify. Add CRABIFY_UPLOAD_PROXY when you are ready to publish through a secure backend.',
+      );
     }
 
     final formData = FormData.fromMap(<String, dynamic>{
@@ -143,14 +127,35 @@ class AudiusApiService {
     });
 
     try {
-      await _dio.postUri(
+      final response = await _dio.postUri<Map<String, dynamic>>(
         Uri.parse(_uploadProxyEndpoint),
         data: formData,
         options: Options(headers: _headers),
       );
-      return true;
-    } catch (_) {
-      return false;
+
+      final payload = response.data ?? const <String, dynamic>{};
+      final remoteTrackId =
+          payload['trackId']?.toString() ??
+          payload['track_id']?.toString() ??
+          _asMap(payload['data'])?['trackId']?.toString() ??
+          _asMap(payload['data'])?['track_id']?.toString();
+      final message =
+          payload['message'] as String? ??
+          payload['detail'] as String? ??
+          'Track sent to the upload backend and saved locally in Crabify.';
+
+      return UploadSubmissionResult(
+        submittedRemotely: true,
+        message: message,
+        remoteTrackId: remoteTrackId,
+      );
+    } catch (error) {
+      debugPrint('[Audius] Upload proxy request failed: $error');
+      return const UploadSubmissionResult(
+        submittedRemotely: false,
+        message:
+            'Track saved locally in Crabify, but the upload backend could not be reached right now.',
+      );
     }
   }
 
@@ -175,6 +180,7 @@ class AudiusApiService {
     final artist = _asMap(json['user']);
     final artistPicture = _asMap(artist?['profile_picture']);
     final access = _asMap(json['access']);
+    final streamConditions = _asMap(json['stream_conditions']);
 
     final id = json['id']?.toString() ?? 'audius-${json.hashCode}';
     final title = json['title'] as String? ?? 'Untitled track';
@@ -195,8 +201,11 @@ class AudiusApiService {
         _asBool(json['downloadable']) ??
         _asBool(access?['download']) ??
         false;
-    final streamable =
+    final baseStreamable =
         _asBool(json['is_streamable']) ?? _asBool(access?['stream']) ?? false;
+    final streamGated = streamConditions != null && streamConditions.isNotEmpty;
+    final streamable =
+        baseStreamable && (!streamGated || (_asBool(access?['stream']) ?? false));
     final artworkUrl =
         _artworkUrlFrom(artwork) ?? _artworkUrlFrom(artistPicture);
 
@@ -300,9 +309,7 @@ class AudiusApiService {
   }
 
   bool _isPlayableAudiusTrack(MusicTrack track) {
-    return track.isStreamable &&
-        track.streamUrl != null &&
-        track.streamUrl!.isNotEmpty;
+    return track.hasValidRemoteSource;
   }
 
   List<MusicTrack> _filterRelevantTracks(

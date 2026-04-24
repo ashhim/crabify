@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 
+import '../models/upload_draft.dart';
 import '../services/audio_player_service.dart';
 import '../theme/crabify_theme.dart';
 import '../widgets/mini_player.dart';
@@ -86,25 +87,19 @@ class _RootShellState extends State<RootShell> {
   }
 
   Future<void> _openUpload() async {
-    final submittedRemotely = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
+    final result = await Navigator.of(context).push<UploadSubmissionResult>(
+      MaterialPageRoute<UploadSubmissionResult>(
         builder: (_) => const UploadScreen(),
         fullscreenDialog: true,
       ),
     );
 
-    if (!mounted || submittedRemotely == null) {
+    if (!mounted || result == null) {
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          submittedRemotely
-              ? 'Track sent to your upload backend and added to the app.'
-              : 'Track saved locally and inserted into the Crabify demo library.',
-        ),
-      ),
+      SnackBar(content: Text(result.message)),
     );
   }
 

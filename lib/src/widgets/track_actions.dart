@@ -10,6 +10,7 @@ Future<void> showTrackActionsSheet(
   required MusicTrack track,
 }) {
   final library = context.read<LibraryService>();
+  final downloadInProgress = library.progressFor(track.id) != null;
 
   return showModalBottomSheet<void>(
     context: context,
@@ -72,9 +73,14 @@ Future<void> showTrackActionsSheet(
                     track.downloadable
                         ? library.isDownloaded(track.id)
                             ? 'Downloaded'
+                            : downloadInProgress
+                            ? 'Downloading...'
                             : 'Download for offline'
                         : 'Download unavailable',
-                enabled: track.downloadable && !library.isDownloaded(track.id),
+                enabled:
+                    track.downloadable &&
+                    !library.isDownloaded(track.id) &&
+                    !downloadInProgress,
                 onTap: () async {
                   Navigator.of(context).pop();
                   try {

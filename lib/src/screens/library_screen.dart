@@ -10,7 +10,7 @@ import '../widgets/track_actions.dart';
 import '../widgets/track_tile.dart';
 import 'detail_screen.dart';
 
-enum _LibraryFilter { playlists, downloads, imported, recent }
+enum _LibraryFilter { playlists, downloads, imported, uploads, recent }
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key, required this.onOpenUpload});
@@ -166,6 +166,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 actionLabel: 'Import',
                 onAction: _importFiles,
               ),
+            if (_filter == _LibraryFilter.uploads)
+              _TrackSection(
+                title: 'Uploaded tracks',
+                tracks: library.uploadedTracks,
+                emptyTitle: 'No uploads yet',
+                emptyMessage:
+                    'Save a track locally from the upload screen, then publish it through your secure backend when one is configured.',
+              ),
             if (_filter == _LibraryFilter.recent)
               _TrackSection(
                 title: 'Recent plays',
@@ -232,6 +240,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _LibraryFilter.playlists => 'Playlists',
       _LibraryFilter.downloads => 'Downloads',
       _LibraryFilter.imported => 'Imported',
+      _LibraryFilter.uploads => 'Uploads',
       _LibraryFilter.recent => 'Recent',
     };
   }

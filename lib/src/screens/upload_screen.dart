@@ -1,7 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:provider/provider.dart';
 
 import '../models/upload_draft.dart';
 import '../services/library_service.dart';
@@ -41,6 +41,10 @@ class _UploadScreenState extends State<UploadScreen> {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
+    final uploadStatusMessage =
+        library.uploadUsesStub
+            ? 'Tracks are saved locally first in Crabify. Add CRABIFY_UPLOAD_PROXY when you are ready to publish through a secure backend.'
+            : 'Tracks are saved locally first, then forwarded to your secure upload backend for cloud publishing.';
 
     return Scaffold(
       appBar: AppBar(
@@ -51,13 +55,13 @@ class _UploadScreenState extends State<UploadScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
           children: <Widget>[
-            if (library.uploadUsesStub)
-              const SurfaceCard(
-                color: CrabifyColors.surfaceRaised,
-                child: Text(
-                  'This demo uses a secure local stub for uploads. Plug a backend into `CRABIFY_UPLOAD_PROXY` when you are ready to send tracks to Audius for real.',
-                ),
+            SurfaceCard(
+              color: CrabifyColors.surfaceRaised,
+              child: Text(
+                uploadStatusMessage,
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
+            ),
             const SizedBox(height: 18),
             SurfaceCard(
               child: Form(
@@ -74,6 +78,7 @@ class _UploadScreenState extends State<UploadScreen> {
                     const SizedBox(height: 18),
                     TextFormField(
                       controller: _titleController,
+                      enabled: !_submitting,
                       decoration: const InputDecoration(labelText: 'Title'),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
@@ -85,6 +90,7 @@ class _UploadScreenState extends State<UploadScreen> {
                     const SizedBox(height: 14),
                     TextFormField(
                       controller: _artistController,
+                      enabled: !_submitting,
                       decoration: const InputDecoration(labelText: 'Artist'),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
@@ -96,6 +102,7 @@ class _UploadScreenState extends State<UploadScreen> {
                     const SizedBox(height: 14),
                     TextFormField(
                       controller: _genreController,
+                      enabled: !_submitting,
                       decoration: const InputDecoration(labelText: 'Genre'),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
@@ -107,6 +114,7 @@ class _UploadScreenState extends State<UploadScreen> {
                     const SizedBox(height: 14),
                     TextFormField(
                       controller: _descriptionController,
+                      enabled: !_submitting,
                       decoration: const InputDecoration(
                         labelText: 'Description',
                       ),
@@ -143,7 +151,7 @@ class _UploadScreenState extends State<UploadScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
                             FilledButton.tonalIcon(
-                              onPressed: _pickAudio,
+                              onPressed: _submitting ? null : _pickAudio,
                               icon: const Icon(Icons.audio_file_rounded),
                               label: Text(
                                 _audioFilePath == null
@@ -153,7 +161,7 @@ class _UploadScreenState extends State<UploadScreen> {
                             ),
                             const SizedBox(height: 10),
                             OutlinedButton.icon(
-                              onPressed: _pickCover,
+                              onPressed: _submitting ? null : _pickCover,
                               icon: const Icon(Icons.image_rounded),
                               label: Text(
                                 _coverImagePath == null
@@ -179,7 +187,9 @@ class _UploadScreenState extends State<UploadScreen> {
                   SwitchListTile(
                     value: _allowDownload,
                     onChanged:
-                        (value) => setState(() => _allowDownload = value),
+                        _submitting
+                            ? null
+                            : (value) => setState(() => _allowDownload = value),
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Allow offline download'),
                     subtitle: const Text(
@@ -188,9 +198,12 @@ class _UploadScreenState extends State<UploadScreen> {
                   ),
                   CheckboxListTile(
                     value: _rightsConfirmed,
-                    onChanged: (value) {
-                      setState(() => _rightsConfirmed = value ?? false);
-                    },
+                    onChanged:
+                        _submitting
+                            ? null
+                            : (value) {
+                              setState(() => _rightsConfirmed = value ?? false);
+                            },
                     contentPadding: EdgeInsets.zero,
                     title: const Text(
                       'I own this track or I am licensed to upload it',
@@ -283,14 +296,12 @@ class _UploadScreenState extends State<UploadScreen> {
         allowDownload: _allowDownload,
         rightsConfirmed: _rightsConfirmed,
       );
-      final submittedRemotely = await context
-          .read<LibraryService>()
-          .submitUpload(draft);
+      final result = await context.read<LibraryService>().submitUpload(draft);
       if (!mounted) {
         return;
       }
 
-      Navigator.of(context).pop(submittedRemotely);
+      Navigator.of(context).pop(result);
     } catch (error) {
       if (!mounted) {
         return;

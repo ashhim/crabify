@@ -237,6 +237,7 @@ class LibraryService extends ChangeNotifier {
   bool isLiked(String trackId) => _likedTrackIds.contains(trackId);
   bool isDownloaded(String trackId) =>
       downloadedTracks.any((track) => track.id == trackId);
+  bool isDownloading(String trackId) => _downloadProgress.containsKey(trackId);
   double? progressFor(String trackId) => _downloadProgress[trackId];
 
   Future<void> toggleLike(String trackId) async {
@@ -264,11 +265,28 @@ class LibraryService extends ChangeNotifier {
     required String selectedTrackId,
     bool shuffle = false,
   }) async {
-    await _audioPlayerService.setQueue(tracks, initialTrackId: selectedTrackId);
-    if (shuffle && !_audioPlayerService.shuffleEnabled) {
-      await _audioPlayerService.toggleShuffle();
+    final playableTracks =
+        tracks.where((track) => track.isPlayable && track.hasValidId).toList();
+    if (playableTracks.isEmpty) {
+      debugPrint('[Audio] No valid tracks were provided for playback.');
+      return;
     }
-    await markRecentlyPlayed(selectedTrackId);
+
+    try {
+      await _audioPlayerService.setQueue(
+        playableTracks,
+        initialTrackId: selectedTrackId,
+      );
+      if (_audioPlayerService.currentTrack?.id != selectedTrackId) {
+        return;
+      }
+      if (shuffle && !_audioPlayerService.shuffleEnabled) {
+        await _audioPlayerService.toggleShuffle();
+      }
+      await markRecentlyPlayed(selectedTrackId);
+    } catch (error) {
+      debugPrint('[Audio] Failed to play track queue: $error');
+    }
   }
 
   Future<void> addToQueue(MusicTrack track) {
@@ -328,10 +346,14 @@ class LibraryService extends ChangeNotifier {
       );
     }
 
+    if (!track.isLocal && !track.hasValidRemoteSource) {
+      throw StateError('Crabify could not validate the remote stream for this track.');
+    }
+
     final sourceUrl =
         track.isLocal
             ? track.localPath!
-            : await _audiusApiService.fetchFreshStreamUrl(track);
+            : _audiusApiService.resolveStreamUrl(track);
     _downloadProgress[track.id] = 0;
     notifyListeners();
 
@@ -356,7 +378,7 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  Future<bool> submitUpload(UploadDraft draft) async {
+  Future<UploadSubmissionResult> submitUpload(UploadDraft draft) async {
     if (!draft.isComplete) {
       throw StateError(
         'Complete the upload form and confirm your rights before publishing.',
@@ -364,24 +386,39 @@ class LibraryService extends ChangeNotifier {
     }
 
     final uploadId = _newId('upload');
-    final localAudioPath = await _localStorageService.copyUploadedAudio(
-      draft.audioFilePath,
-      uploadId,
-    );
-    final localCoverPath = await _localStorageService.copyUploadedCover(
-      draft.coverImagePath,
-      '$uploadId-cover',
-    );
+    late final String localAudioPath;
+    String? localCoverPath;
 
-    final submittedRemotely = await _audiusApiService.submitUpload(draft);
+    try {
+      localAudioPath = await _localStorageService.copyUploadedAudio(
+        draft.audioFilePath,
+        uploadId,
+      );
+      localCoverPath = await _localStorageService.copyUploadedCover(
+        draft.coverImagePath,
+        '$uploadId-cover',
+      );
+    } catch (error) {
+      throw StateError(
+        'Crabify could not save the selected files locally: $error',
+      );
+    }
+
+    final submissionResult = await _audiusApiService.submitUpload(draft);
 
     final uploadedTrack = MusicTrack(
       id: uploadId,
       title: draft.title,
       artistName: draft.artistName,
       artistId: _slug(draft.artistName),
-      albumTitle: submittedRemotely ? 'Audius Uploads' : 'Local Upload Queue',
-      albumId: submittedRemotely ? 'audius-uploads' : 'local-upload-queue',
+      albumTitle:
+          submissionResult.submittedRemotely
+              ? 'Published Uploads'
+              : 'Local Upload Queue',
+      albumId:
+          submissionResult.submittedRemotely
+              ? 'published-uploads'
+              : 'local-upload-queue',
       artworkPath: localCoverPath,
       description: draft.description,
       genre: draft.genre,
@@ -391,10 +428,12 @@ class LibraryService extends ChangeNotifier {
     );
 
     uploadedTracks = <MusicTrack>[uploadedTrack, ...uploadedTracks];
-    onlineTracks = <MusicTrack>[uploadedTrack, ...onlineTracks];
     await _persistState();
+    if (submissionResult.submittedRemotely) {
+      unawaited(refreshOnlineLibrary(silent: true));
+    }
     notifyListeners();
-    return submittedRemotely;
+    return submissionResult;
   }
 
   Future<void> createPlaylist(String title) async {

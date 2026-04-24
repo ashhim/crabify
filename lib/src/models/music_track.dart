@@ -51,9 +51,30 @@ class MusicTrack {
   Duration? get duration =>
       durationSeconds == null ? null : Duration(seconds: durationSeconds!);
 
+  bool get hasValidId => id.trim().isNotEmpty;
   bool get isLocal => localPath != null && localPath!.isNotEmpty;
-  bool get isRemote =>
-      isStreamable && streamUrl != null && streamUrl!.isNotEmpty;
+  bool get isAudiusStreamEndpoint =>
+      (streamUrl ?? '').startsWith('https://api.audius.co/v1/tracks/');
+  bool get hasValidAudiusTrackId =>
+      RegExp(r'^[A-Za-z0-9]+$').hasMatch(id.trim());
+  bool get hasValidRemoteSource {
+    if (!isStreamable || streamUrl == null || streamUrl!.trim().isEmpty) {
+      return false;
+    }
+
+    final uri = Uri.tryParse(streamUrl!.trim());
+    if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
+      return false;
+    }
+
+    if (isAudiusStreamEndpoint) {
+      return hasValidId && hasValidAudiusTrackId;
+    }
+
+    return true;
+  }
+
+  bool get isRemote => hasValidRemoteSource;
   bool get isPlayable => isLocal || isRemote;
   bool get isOfflineAvailable => isLocal;
 

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:path/path.dart' as path;
 
@@ -17,23 +19,56 @@ class DownloadService {
     required String sourceUrl,
     void Function(double progress)? onProgress,
   }) async {
+    if (sourceUrl.trim().isEmpty) {
+      throw StateError('Crabify could not resolve a download URL for this track.');
+    }
+
     final extension = _extensionFromUrl(sourceUrl, fallback: '.mp3');
     final targetPath = await _storageService.createDownloadPath(
       track.id,
       extension: extension,
     );
+    final tempPath = '$targetPath.part';
 
-    await _dio.download(
-      sourceUrl,
-      targetPath,
-      onReceiveProgress: (received, total) {
-        if (total <= 0) {
-          onProgress?.call(0);
-          return;
-        }
-        onProgress?.call(received / total);
-      },
-    );
+    await _storageService.deleteIfExists(tempPath);
+    await _storageService.deleteIfExists(targetPath);
+
+    try {
+      await _dio.download(
+        sourceUrl,
+        tempPath,
+        deleteOnError: true,
+        options: Options(
+          followRedirects: true,
+          receiveTimeout: const Duration(minutes: 4),
+          sendTimeout: const Duration(seconds: 30),
+          validateStatus:
+              (status) => status != null && status >= 200 && status < 400,
+        ),
+        onReceiveProgress: (received, total) {
+          if (total <= 0) {
+            onProgress?.call(0);
+            return;
+          }
+          onProgress?.call(received / total);
+        },
+      );
+
+      await File(tempPath).rename(targetPath);
+    } on DioException catch (error) {
+      await _storageService.deleteIfExists(tempPath);
+      throw StateError(
+        'Crabify could not download ${track.title} right now: ${error.message ?? error.type.name}.',
+      );
+    } on FileSystemException catch (error) {
+      await _storageService.deleteIfExists(tempPath);
+      throw StateError(
+        'Crabify could not save ${track.title} offline: ${error.message}.',
+      );
+    } catch (error) {
+      await _storageService.deleteIfExists(tempPath);
+      throw StateError('Crabify could not save ${track.title} offline: $error');
+    }
 
     String? localArtworkPath = track.artworkPath;
     if (localArtworkPath == null &&
