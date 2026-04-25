@@ -290,10 +290,20 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
               alreadyImportedCount == 1
                   ? '1 duplicate skipped'
                   : '$alreadyImportedCount duplicates skipped',
+            if (library.importErrorMessages.isNotEmpty)
+              library.importErrorMessages.length == 1
+                  ? '1 file failed'
+                  : '${library.importErrorMessages.length} files failed',
           ].join(' • '),
         ),
       ),
     );
+    if (library.importErrorMessages.isNotEmpty) {
+      final details = library.importErrorMessages.take(2).join('\n');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(details)),
+      );
+    }
     Navigator.of(context).pop();
   }
 

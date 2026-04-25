@@ -37,6 +37,32 @@ class DeviceMediaScannerService {
     return candidates;
   }
 
+  Future<String> copyScannedSongToAppStorage({
+    required String sourceUri,
+    required String targetPath,
+  }) async {
+    if (kIsWeb || !Platform.isAndroid) {
+      throw UnsupportedError(
+        'Scoped-storage scan import is only available on Android.',
+      );
+    }
+
+    final copiedPath = await _channel.invokeMethod<String>('copySongToApp', <
+      String,
+      Object?
+    >{
+      'sourceUri': sourceUri,
+      'targetPath': targetPath,
+    });
+
+    if (copiedPath == null || copiedPath.trim().isEmpty) {
+      throw const FileSystemException(
+        'Crabify could not copy the selected song into app storage.',
+      );
+    }
+    return copiedPath;
+  }
+
   Future<bool> _ensureAndroidMediaPermission() async {
     final permissions = <Permission>[
       Permission.audio,

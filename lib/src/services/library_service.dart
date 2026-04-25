@@ -52,6 +52,7 @@ class LibraryService extends ChangeNotifier {
   bool importOperationInProgress = false;
   String? importStatusMessage;
   double? importProgressValue;
+  final List<String> _importErrorMessages = <String>[];
 
   List<MusicTrack> onlineTracks = <MusicTrack>[];
   List<MusicTrack> importedTracks = <MusicTrack>[];
@@ -97,6 +98,8 @@ class LibraryService extends ChangeNotifier {
 
   Map<String, double> get downloadProgress =>
       Map<String, double>.unmodifiable(_downloadProgress);
+  List<String> get importErrorMessages =>
+      List<String>.unmodifiable(_importErrorMessages);
   List<ArtistProfile> get savedArtists =>
       _savedArtists.where((artist) => !artist.hidden).toList();
 
@@ -566,8 +569,8 @@ class LibraryService extends ChangeNotifier {
       return 0;
     }
 
+    _importErrorMessages.clear();
     var importedCount = 0;
-    final failures = <String>[];
     await _runImportOperation<void>('Scanning selected songs...', () async {
       final uniqueCandidates = <DeviceAudioCandidate>[];
       final seenPaths = <String>{};
@@ -601,7 +604,7 @@ class LibraryService extends ChangeNotifier {
             '[Import] Failed to import detected song ${candidate.path}: $error',
           );
           debugPrintStack(stackTrace: stackTrace);
-          failures.add('${candidate.title}: $error');
+          _importErrorMessages.add('${candidate.title}: $error');
         }
         importProgressValue = (index + 1) / uniqueCandidates.length;
         notifyListeners();
@@ -611,14 +614,15 @@ class LibraryService extends ChangeNotifier {
       _refreshArtistCoverArtwork();
       await _persistState();
     });
-    if (importedCount == 0 && failures.isNotEmpty) {
-      throw StateError(failures.first);
+    if (importedCount == 0 && _importErrorMessages.isNotEmpty) {
+      throw StateError(_importErrorMessages.first);
     }
     notifyListeners();
     return importedCount;
   }
 
   Future<void> quickImportTracks() async {
+    _importErrorMessages.clear();
     final result = await FilePicker.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
@@ -699,6 +703,7 @@ class LibraryService extends ChangeNotifier {
   }
 
   Future<MusicTrack> saveCustomImport(ImportDraft draft) async {
+    _importErrorMessages.clear();
     late final MusicTrack importedTrack;
     await _runImportOperation<void>(
       'Saving ${draft.title}...',
@@ -1897,6 +1902,7 @@ class LibraryService extends ChangeNotifier {
 
     return ImportDraft(
       sourceAudioPath: sourcePath,
+      sourceAudioUri: detectedCandidate?.sourceUri,
       title:
           metadata?.title?.trim().isNotEmpty == true
               ? metadata!.title!.trim()
@@ -1925,6 +1931,7 @@ class LibraryService extends ChangeNotifier {
     final copiedPath = await _prepareImportedAudioPath(
       draft.sourceAudioPath,
       importedId,
+      draft.sourceAudioUri,
     );
     final artistNames = _resolvedArtistNames(
       parseArtistNames(draft.artistName),
@@ -1972,7 +1979,18 @@ class LibraryService extends ChangeNotifier {
   Future<String> _prepareImportedAudioPath(
     String sourcePath,
     String importedId,
+    String? sourceUri,
   ) async {
+    if (sourceUri != null && sourceUri.trim().isNotEmpty && Platform.isAndroid) {
+      final targetPath = await _localStorageService.createImportedAudioPath(
+        importedId,
+        extension: '.mp3',
+      );
+      return _deviceMediaScannerService.copyScannedSongToAppStorage(
+        sourceUri: sourceUri,
+        targetPath: targetPath,
+      );
+    }
     return _localStorageService.copyImportedAudio(sourcePath, importedId);
   }
 

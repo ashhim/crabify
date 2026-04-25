@@ -3,6 +3,7 @@ class DeviceAudioCandidate {
     required this.path,
     required this.title,
     required this.artistName,
+    this.sourceUri,
     this.albumTitle,
     this.durationSeconds,
   });
@@ -10,6 +11,7 @@ class DeviceAudioCandidate {
   final String path;
   final String title;
   final String artistName;
+  final String? sourceUri;
   final String? albumTitle;
   final int? durationSeconds;
 
@@ -18,6 +20,7 @@ class DeviceAudioCandidate {
       path: json['path']?.toString() ?? '',
       title: json['title']?.toString() ?? 'Unknown track',
       artistName: json['artistName']?.toString() ?? 'Unknown artist',
+      sourceUri: json['sourceUri']?.toString(),
       albumTitle: json['albumTitle']?.toString(),
       durationSeconds: _toInt(json['durationSeconds']),
     );

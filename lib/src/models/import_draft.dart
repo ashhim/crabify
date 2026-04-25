@@ -4,6 +4,7 @@ class ImportDraft {
     required this.title,
     required this.artistName,
     required this.albumTitle,
+    this.sourceAudioUri,
     this.genre,
     this.coverImagePath,
     this.embeddedArtworkBytes,
@@ -12,6 +13,7 @@ class ImportDraft {
   });
 
   final String sourceAudioPath;
+  final String? sourceAudioUri;
   final String title;
   final String artistName;
   final String albumTitle;
@@ -28,6 +30,7 @@ class ImportDraft {
 
   ImportDraft copyWith({
     String? sourceAudioPath,
+    String? sourceAudioUri,
     String? title,
     String? artistName,
     String? albumTitle,
@@ -41,6 +44,7 @@ class ImportDraft {
   }) {
     return ImportDraft(
       sourceAudioPath: sourceAudioPath ?? this.sourceAudioPath,
+      sourceAudioUri: sourceAudioUri ?? this.sourceAudioUri,
       title: title ?? this.title,
       artistName: artistName ?? this.artistName,
       albumTitle: albumTitle ?? this.albumTitle,

@@ -208,7 +208,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             _ActionBanner(
               title: 'Make this library yours',
               message:
-                  'Create playlists, import audio files from your device, and keep offline tracks close.',
+                  '', //Create playlists, import audio files from your device, and keep offline tracks close
               actionLabel: 'Import files',
               onAction: _importFiles,
             ),
@@ -217,7 +217,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               const _EmptyCard(
                 title: 'No playlists yet',
                 message:
-                    'Create your first playlist, then add online or offline tracks to it from any track menu.',
+                    '', //Create your first playlist, then add online or offline tracks to it from any track menu.
               )
             else ...<Widget>[
               Align(
@@ -271,7 +271,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 tracks: library.likedTracks,
                 emptyTitle: 'No liked songs yet',
                 emptyMessage:
-                    'Heart tracks from Home, Search, playlists, or the player and they will stay here.',
+                    '', //Heart tracks from Home, Search, playlists, or the player and they will stay here.
               ),
             if (filter == _LibraryFilter.downloads)
               _TrackSection(
@@ -279,7 +279,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 tracks: library.downloadedTracks,
                 emptyTitle: 'No downloads yet',
                 emptyMessage:
-                    'Save tracks from the online catalog and they will appear here for offline playback.',
+                    '', //Save tracks from the online catalog and they will appear here for offline playback.
               ),
             if (filter == _LibraryFilter.imported)
               Column(
@@ -305,7 +305,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     const _EmptyCard(
                       title: 'No imported tracks yet',
                       message:
-                          'Scan device songs or choose files from your device to bring them into Crabify.',
+                          '', //Scan device songs or choose files from your device to bring them into Crabify.
                     )
                   else
                     ...library.importedTracks.map((track) {
@@ -331,7 +331,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 tracks: library.uploadedTracks,
                 emptyTitle: 'No uploads yet',
                 emptyMessage:
-                    'Save a track locally from the upload screen, then publish it through your secure backend when one is configured.',
+                    '', //Save a track locally from the upload screen, then publish it through your secure backend when one is configured.
               ),
             if (filter == _LibraryFilter.recent) _RecentSection(),
           ],
@@ -349,7 +349,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _ActionBanner(
           title: 'Artist',
           message:
-              'Crabify groups your imported, downloaded, and uploaded tracks into artist pages. Removing an artist here hides the artist card without touching any songs.',
+              '', //Crabify groups your imported, downloaded, and uploaded tracks into artist pages. Removing an artist here hides the artist card without touching any songs.
           actionLabel: 'Import files',
           onAction: _importFiles,
         ),
@@ -375,7 +375,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           const _EmptyCard(
             title: 'No artists yet',
             message:
-                'Import or download local tracks and Crabify will build artist pages from their metadata.',
+                '', //Import or download local tracks and Crabify will build artist pages from their metadata.
           )
         else
           ...artists.map((artist) {
@@ -415,7 +415,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Search Audius-backed artist matches and pin them into this artist shelf.',
+                '', //Search Audius-backed artist matches and pin them into this artist shelf.
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: CrabifyColors.textSecondary,
                 ),
