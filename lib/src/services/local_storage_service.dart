@@ -154,6 +154,41 @@ class LocalStorageService {
     }
   }
 
+  Future<bool> fileExists(String? filePath) async {
+    if (filePath == null || filePath.trim().isEmpty) {
+      return false;
+    }
+    return File(filePath).exists();
+  }
+
+  bool isManagedPath(String? filePath) {
+    if (filePath == null || filePath.trim().isEmpty) {
+      return false;
+    }
+
+    final normalizedPath = path.normalize(filePath);
+    final managedRoots = <String>[
+      _appDirectory.path,
+      _importDirectory.path,
+      _uploadDirectory.path,
+      _downloadDirectory.path,
+      _coverDirectory.path,
+    ].map(path.normalize);
+
+    return managedRoots.any(
+      (managedRoot) =>
+          normalizedPath == managedRoot ||
+          normalizedPath.startsWith('$managedRoot${path.separator}'),
+    );
+  }
+
+  Future<void> deleteManagedFile(String? filePath) async {
+    if (!isManagedPath(filePath)) {
+      return;
+    }
+    await deleteIfExists(filePath);
+  }
+
   Future<String> _copyFileInto({
     required String sourcePath,
     required Directory targetDirectory,
@@ -161,6 +196,10 @@ class LocalStorageService {
   }) async {
     final sourceFile = File(sourcePath);
     final targetFile = File(path.join(targetDirectory.path, fileName));
+
+    if (!await sourceFile.exists()) {
+      throw FileSystemException('Source file could not be found.', sourcePath);
+    }
 
     if (targetFile.existsSync()) {
       await targetFile.delete();

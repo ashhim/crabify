@@ -113,6 +113,7 @@ class NowPlayingScreen extends StatelessWidget {
                     IconButton(
                       onPressed:
                           track.downloadable &&
+                                  !track.hasValidLocalSource &&
                                   !library.isDownloaded(track.id) &&
                                   progress == null
                               ? () async {
@@ -188,9 +189,8 @@ class NowPlayingScreen extends StatelessWidget {
                   onChanged:
                       busyForCurrentTrack
                           ? null
-                          : (value) => audio.seek(
-                            Duration(milliseconds: value.round()),
-                          ),
+                          : (value) =>
+                              audio.seek(Duration(milliseconds: value.round())),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -217,7 +217,8 @@ class NowPlayingScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: <Widget>[
                     IconButton(
-                      onPressed: busyForCurrentTrack ? null : audio.toggleShuffle,
+                      onPressed:
+                          busyForCurrentTrack ? null : audio.toggleShuffle,
                       icon: Icon(
                         Icons.shuffle_rounded,
                         color:

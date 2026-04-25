@@ -68,6 +68,18 @@ class LibraryService extends ChangeNotifier {
 
   List<MusicTrack> get likedTracks => _resolveTracks(_likedTrackIds.toList());
   List<MusicTrack> get recentTracks => _resolveTracks(_recentTrackIds);
+  List<MusicTrack> get localTracks {
+    final result = <String, MusicTrack>{};
+    for (final track in <MusicTrack>[
+      ...downloadedTracks,
+      ...importedTracks,
+      ...uploadedTracks,
+    ]) {
+      result.putIfAbsent(track.cacheKey, () => track);
+    }
+    return result.values.toList();
+  }
+
   Map<String, double> get downloadProgress =>
       Map<String, double>.unmodifiable(_downloadProgress);
 
@@ -106,6 +118,10 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> initialize() async {
     _restoreState(_localStorageService.loadState());
+    final removedMissingTracks = await _pruneMissingManagedLocalTracks();
+    if (removedMissingTracks) {
+      await _persistState();
+    }
 
     isLoading = true;
     notifyListeners();
@@ -265,38 +281,57 @@ class LibraryService extends ChangeNotifier {
     required String selectedTrackId,
     bool shuffle = false,
   }) async {
-    final playableTracks =
-        tracks
-            .where(
-              (track) =>
-                  track.hasValidId &&
-                  (track.hasValidLocalSource || track.hasValidRemoteSource),
-            )
-            .toList();
+    final playableTracks = await _resolvePlayableTracks(tracks);
     if (playableTracks.isEmpty) {
-      debugPrint('[Audio] No valid tracks were provided for playback.');
+      final message = 'No playable tracks are available right now.';
+      debugPrint('[Audio] $message');
+      _audioPlayerService.reportError(message);
+      return;
+    }
+
+    MusicTrack? selectedTrack;
+    for (final track in playableTracks) {
+      if (track.id == selectedTrackId) {
+        selectedTrack = track;
+        break;
+      }
+    }
+
+    if (selectedTrack == null) {
+      final message =
+          'The selected track is no longer available locally or cannot be streamed right now.';
+      debugPrint('[Audio] $message | trackId=$selectedTrackId');
+      _audioPlayerService.reportError(message);
       return;
     }
 
     try {
       await _audioPlayerService.setQueue(
         playableTracks,
-        initialTrackId: selectedTrackId,
+        initialTrackId: selectedTrack.id,
       );
-      if (_audioPlayerService.currentTrack?.id != selectedTrackId) {
+      if (_audioPlayerService.currentTrack?.cacheKey !=
+          selectedTrack.cacheKey) {
         return;
       }
       if (shuffle && !_audioPlayerService.shuffleEnabled) {
         await _audioPlayerService.toggleShuffle();
       }
-      await markRecentlyPlayed(selectedTrackId);
+      await markRecentlyPlayed(selectedTrack.id);
     } catch (error) {
       debugPrint('[Audio] Failed to play track queue: $error');
     }
   }
 
-  Future<void> addToQueue(MusicTrack track) {
-    return _audioPlayerService.addToQueue(track);
+  Future<void> addToQueue(MusicTrack track) async {
+    if (!await _canUseTrack(track)) {
+      _audioPlayerService.reportError(
+        'This track is not available for playback right now.',
+      );
+      return;
+    }
+
+    await _audioPlayerService.addToQueue(track);
   }
 
   Future<void> removeQueueItem(int index) {
@@ -346,6 +381,14 @@ class LibraryService extends ChangeNotifier {
       return;
     }
 
+    if (isDownloaded(track.id)) {
+      return;
+    }
+
+    if (track.hasValidLocalSource) {
+      throw StateError('This track is already stored locally on the device.');
+    }
+
     if (!track.downloadable) {
       throw StateError(
         'Only tracks explicitly marked as downloadable can be saved offline.',
@@ -353,7 +396,9 @@ class LibraryService extends ChangeNotifier {
     }
 
     if (!track.isLocal && !track.hasValidRemoteSource) {
-      throw StateError('Crabify could not validate the remote stream for this track.');
+      throw StateError(
+        'Crabify could not validate the remote stream for this track.',
+      );
     }
 
     final sourceUrl =
@@ -382,6 +427,42 @@ class LibraryService extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  Future<void> deleteLocalTrack(MusicTrack track) async {
+    if (!track.hasValidLocalSource) {
+      throw StateError(
+        'Only locally stored tracks can be removed from the device.',
+      );
+    }
+
+    if (_downloadProgress.containsKey(track.id)) {
+      throw StateError(
+        'Wait for the current download to finish before deleting it.',
+      );
+    }
+
+    await _removeTrackFromQueue(track);
+
+    await _localStorageService.deleteManagedFile(track.localPath);
+    await _localStorageService.deleteManagedFile(track.artworkPath);
+
+    downloadedTracks =
+        downloadedTracks
+            .where((candidate) => candidate.cacheKey != track.cacheKey)
+            .toList();
+    importedTracks =
+        importedTracks
+            .where((candidate) => candidate.cacheKey != track.cacheKey)
+            .toList();
+    uploadedTracks =
+        uploadedTracks
+            .where((candidate) => candidate.cacheKey != track.cacheKey)
+            .toList();
+
+    _cleanupDanglingTrackReferences();
+    await _persistState();
+    notifyListeners();
   }
 
   Future<UploadSubmissionResult> submitUpload(UploadDraft draft) async {
@@ -559,6 +640,134 @@ class LibraryService extends ChangeNotifier {
       origin: TrackOrigin.local,
       description: 'Imported from your device storage for offline playback.',
     );
+  }
+
+  Future<List<MusicTrack>> _resolvePlayableTracks(
+    List<MusicTrack> tracks,
+  ) async {
+    final playableTracks = <MusicTrack>[];
+    var removedMissingLocalTrack = false;
+
+    for (final track in tracks) {
+      if (!track.hasValidId) {
+        continue;
+      }
+
+      if (track.hasValidLocalSource) {
+        if (await _localStorageService.fileExists(track.localPath)) {
+          playableTracks.add(track);
+          continue;
+        }
+
+        removedMissingLocalTrack = true;
+        debugPrint(
+          '[Library] Local file missing for ${track.title} | path=${track.localPath}',
+        );
+        continue;
+      }
+
+      if (track.hasValidRemoteSource) {
+        playableTracks.add(track);
+      }
+    }
+
+    if (removedMissingLocalTrack) {
+      final changed = await _pruneMissingManagedLocalTracks();
+      if (changed) {
+        await _persistState();
+        notifyListeners();
+      }
+    }
+
+    final deduped = <String, MusicTrack>{};
+    for (final track in playableTracks) {
+      deduped.putIfAbsent(track.cacheKey, () => track);
+    }
+    return deduped.values.toList();
+  }
+
+  Future<bool> _canUseTrack(MusicTrack track) async {
+    if (!track.hasValidId) {
+      return false;
+    }
+
+    if (track.hasValidLocalSource) {
+      return _localStorageService.fileExists(track.localPath);
+    }
+
+    return track.hasValidRemoteSource;
+  }
+
+  Future<bool> _pruneMissingManagedLocalTracks() async {
+    var changed = false;
+
+    Future<List<MusicTrack>> keepExisting(List<MusicTrack> tracks) async {
+      final result = <MusicTrack>[];
+      for (final track in tracks) {
+        if (!track.hasValidLocalSource) {
+          result.add(track);
+          continue;
+        }
+
+        if (await _localStorageService.fileExists(track.localPath)) {
+          result.add(track);
+          continue;
+        }
+
+        changed = true;
+        debugPrint(
+          '[Library] Pruning missing local track ${track.title} | path=${track.localPath}',
+        );
+        await _localStorageService.deleteManagedFile(track.artworkPath);
+      }
+      return result;
+    }
+
+    downloadedTracks = await keepExisting(downloadedTracks);
+    importedTracks = await keepExisting(importedTracks);
+    uploadedTracks = await keepExisting(uploadedTracks);
+
+    if (changed) {
+      _cleanupDanglingTrackReferences();
+    }
+
+    return changed;
+  }
+
+  void _cleanupDanglingTrackReferences() {
+    final availableTrackIds = allTracks.map((track) => track.id).toSet();
+
+    _likedTrackIds.removeWhere(
+      (trackId) => !availableTrackIds.contains(trackId),
+    );
+    _recentTrackIds.removeWhere(
+      (trackId) => !availableTrackIds.contains(trackId),
+    );
+    playlists =
+        playlists
+            .map(
+              (playlist) => playlist.copyWith(
+                trackIds:
+                    playlist.trackIds
+                        .where((trackId) => availableTrackIds.contains(trackId))
+                        .toList(),
+              ),
+            )
+            .toList();
+  }
+
+  Future<void> _removeTrackFromQueue(MusicTrack track) async {
+    final queuedMatches = <int>[];
+    for (var index = 0; index < _audioPlayerService.queue.length; index += 1) {
+      final queuedTrack = _audioPlayerService.queue[index];
+      if (queuedTrack.cacheKey == track.cacheKey) {
+        queuedMatches.add(index);
+      }
+    }
+
+    for (final index in queuedMatches.reversed) {
+      await _audioPlayerService.removeAt(index);
+    }
   }
 
   List<MusicTrack> _resolveTracks(List<String> ids) {

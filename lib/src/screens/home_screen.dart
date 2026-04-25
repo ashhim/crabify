@@ -26,11 +26,7 @@ class HomeScreen extends StatelessWidget {
                 : library.onlineTracks.take(4).toList();
         final playlists = library.playlists.take(6).toList();
         final onlineTracks = library.onlineTracks.take(8).toList();
-        final offlineTracks =
-            <MusicTrack>[
-              ...library.downloadedTracks,
-              ...library.importedTracks,
-            ].take(6).toList();
+        final offlineTracks = library.localTracks.take(6).toList();
 
         return Container(
           decoration: const BoxDecoration(
@@ -110,39 +106,61 @@ class HomeScreen extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 14),
-                  SizedBox(
-                    height: 240,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemBuilder: (context, index) {
-                        final collection = playlists[index];
-                        return _PlaylistCard(collection: collection);
-                      },
-                      separatorBuilder: (_, __) => const SizedBox(width: 14),
-                      itemCount: playlists.length,
-                    ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final cardWidth = _responsiveCardWidth(
+                        constraints.maxWidth,
+                      );
+                      final sectionHeight = cardWidth + 92;
+                      return SizedBox(
+                        height: sectionHeight,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemBuilder: (context, index) {
+                            final collection = playlists[index];
+                            return _PlaylistCard(
+                              collection: collection,
+                              width: cardWidth,
+                            );
+                          },
+                          separatorBuilder:
+                              (_, __) => const SizedBox(width: 14),
+                          itemCount: playlists.length,
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 28),
                   _SectionHeader(title: 'Fresh from Audius'),
                   const SizedBox(height: 14),
-                  SizedBox(
-                    height: 240,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemBuilder: (context, index) {
-                        final track = onlineTracks[index];
-                        return _TrackCard(
-                          track: track,
-                          onTap:
-                              () => library.playTracks(
-                                onlineTracks,
-                                selectedTrackId: track.id,
-                              ),
-                        );
-                      },
-                      separatorBuilder: (_, __) => const SizedBox(width: 14),
-                      itemCount: onlineTracks.length,
-                    ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final cardWidth = _responsiveCardWidth(
+                        constraints.maxWidth,
+                      );
+                      final sectionHeight = cardWidth + 96;
+                      return SizedBox(
+                        height: sectionHeight,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemBuilder: (context, index) {
+                            final track = onlineTracks[index];
+                            return _TrackCard(
+                              track: track,
+                              width: cardWidth,
+                              onTap:
+                                  () => library.playTracks(
+                                    onlineTracks,
+                                    selectedTrackId: track.id,
+                                  ),
+                            );
+                          },
+                          separatorBuilder:
+                              (_, __) => const SizedBox(width: 14),
+                          itemCount: onlineTracks.length,
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 28),
                   _SectionHeader(
@@ -195,6 +213,16 @@ class HomeScreen extends StatelessWidget {
       },
     );
   }
+}
+
+double _responsiveCardWidth(double availableWidth) {
+  if (availableWidth < 420) {
+    return 146;
+  }
+  if (availableWidth < 720) {
+    return 154;
+  }
+  return 164;
 }
 
 class _TopBar extends StatelessWidget {
@@ -299,9 +327,10 @@ class _QuickPickCard extends StatelessWidget {
 }
 
 class _PlaylistCard extends StatelessWidget {
-  const _PlaylistCard({required this.collection});
+  const _PlaylistCard({required this.collection, required this.width});
 
   final MusicCollection collection;
+  final double width;
 
   @override
   Widget build(BuildContext context) {
@@ -309,7 +338,7 @@ class _PlaylistCard extends StatelessWidget {
     final tracks = library.tracksForCollection(collection);
 
     return SizedBox(
-      width: 164,
+      width: width,
       child: InkWell(
         onTap: () {
           Navigator.of(context).push(
@@ -328,7 +357,7 @@ class _PlaylistCard extends StatelessWidget {
                   seed: collection.id,
                   artworkPath: collection.artworkPath,
                   artworkUrl: collection.artworkUrl,
-                  size: 164,
+                  size: width,
                   borderRadius: BorderRadius.circular(20),
                   icon: Icons.queue_music_rounded,
                 ),
@@ -386,15 +415,20 @@ class _PlaylistCard extends StatelessWidget {
 }
 
 class _TrackCard extends StatelessWidget {
-  const _TrackCard({required this.track, required this.onTap});
+  const _TrackCard({
+    required this.track,
+    required this.onTap,
+    required this.width,
+  });
 
   final MusicTrack track;
   final VoidCallback onTap;
+  final double width;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 164,
+      width: width,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
@@ -405,7 +439,7 @@ class _TrackCard extends StatelessWidget {
               seed: track.cacheKey,
               artworkPath: track.artworkPath,
               artworkUrl: track.artworkUrl,
-              size: 164,
+              size: width,
               borderRadius: BorderRadius.circular(20),
             ),
             const SizedBox(height: 10),
@@ -426,15 +460,20 @@ class _TrackCard extends StatelessWidget {
                 color: CrabifyColors.textSecondary,
               ),
             ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () => showTrackActionsSheet(context, track: track),
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            const SizedBox(height: 6),
+            InkWell(
+              onTap: () => showTrackActionsSheet(context, track: track),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  'More',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: CrabifyColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-              child: const Text('More'),
             ),
           ],
         ),

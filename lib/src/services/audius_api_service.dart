@@ -106,6 +106,41 @@ class AudiusApiService {
     return resolveStreamUrlById(track.id);
   }
 
+  Future<String> resolveFreshPlaybackUrl(MusicTrack track) {
+    return resolveFreshPlaybackUrlById(track.id);
+  }
+
+  Future<String> resolveFreshPlaybackUrlById(String trackId) async {
+    await discoverProviderUrl();
+    final endpoint = resolveStreamUrlById(trackId);
+    debugPrint(
+      '[Audius] Resolving fresh playback URL'
+      ' | trackId=$trackId'
+      ' | endpoint=$endpoint?no_redirect=true',
+    );
+
+    final response = await _dio.get<Map<String, dynamic>>(
+      endpoint,
+      queryParameters: const <String, dynamic>{'no_redirect': true},
+      options: Options(headers: _headers),
+    );
+
+    final payload = response.data ?? const <String, dynamic>{};
+    final freshUrl = payload['data']?.toString().trim() ?? '';
+    if (freshUrl.isEmpty) {
+      throw StateError(
+        'Audius did not return a fresh playback URL for track $trackId.',
+      );
+    }
+
+    debugPrint(
+      '[Audius] Fresh playback URL resolved'
+      ' | trackId=$trackId'
+      ' | url=$freshUrl',
+    );
+    return freshUrl;
+  }
+
   Future<UploadSubmissionResult> submitUpload(UploadDraft draft) async {
     if (!hasUploadProxy) {
       return const UploadSubmissionResult(
@@ -205,7 +240,8 @@ class AudiusApiService {
         _asBool(json['is_streamable']) ?? _asBool(access?['stream']) ?? false;
     final streamGated = streamConditions != null && streamConditions.isNotEmpty;
     final streamable =
-        baseStreamable && (!streamGated || (_asBool(access?['stream']) ?? false));
+        baseStreamable &&
+        (!streamGated || (_asBool(access?['stream']) ?? false));
     final artworkUrl =
         _artworkUrlFrom(artwork) ?? _artworkUrlFrom(artistPicture);
 

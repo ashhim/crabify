@@ -60,6 +60,10 @@ class AudioPlayerService extends ChangeNotifier {
   bool get isBusy => _isBusy;
   String? get activeTrackId => _activeTrackId;
 
+  void reportError(String message) {
+    _recordError(message);
+  }
+
   Future<void> setQueue(
     List<MusicTrack> tracks, {
     String? initialTrackId,
@@ -123,7 +127,8 @@ class AudioPlayerService extends ChangeNotifier {
           _queue = <MusicTrack>[track];
           _currentIndex = -1;
         } else {
-          final insertIndex = _currentIndex < 0 ? _queue.length : _currentIndex + 1;
+          final insertIndex =
+              _currentIndex < 0 ? _queue.length : _currentIndex + 1;
           _queue.insert(insertIndex, track);
         }
       },
@@ -444,6 +449,7 @@ class AudioPlayerService extends ChangeNotifier {
           ' | source=${track == null ? 'n/a' : _streamOrPathForTrack(track)}'
           ' | error=$error',
         );
+        _logErrorDetails(error, track: track, context: 'player error stream');
         _recordError(
           _messageForCommandFailure(
             error,
@@ -500,7 +506,8 @@ class AudioPlayerService extends ChangeNotifier {
           'finish playback',
           track: currentTrack,
           () => _stopUnlocked(clearLoadedTrack: true),
-          failureMessage: 'Playback ended, but Crabify could not reset cleanly.',
+          failureMessage:
+              'Playback ended, but Crabify could not reset cleanly.',
         );
         return;
       }
@@ -540,7 +547,9 @@ class AudioPlayerService extends ChangeNotifier {
 
     final trackKey = _trackLoadKey(track);
     final shouldReload =
-        forceReload || _loadedTrackKey != trackKey || _processingState == ProcessingState.idle;
+        forceReload ||
+        _loadedTrackKey != trackKey ||
+        _processingState == ProcessingState.idle;
     final sourceType = _sourceTypeForTrack(track);
     final source = _streamOrPathForTrack(track);
 
@@ -582,15 +591,7 @@ class AudioPlayerService extends ChangeNotifier {
         );
         loadedDuration = await _player.setFilePath(filePath, tag: tag);
       } else {
-        final streamUrl = _audiusApiService.resolveStreamUrl(track).trim();
-        debugPrint(
-          '[Audio] setUrl'
-          ' | platform=$_platformLabel'
-          ' | trackId=${track.id}'
-          ' | title=${track.title}'
-          ' | url=$streamUrl',
-        );
-        loadedDuration = await _player.setUrl(streamUrl, tag: tag);
+        loadedDuration = await _loadRemoteTrack(track, tag: tag);
       }
       _duration = loadedDuration ?? track.duration;
       _loadedTrackKey = trackKey;
@@ -608,6 +609,114 @@ class AudioPlayerService extends ChangeNotifier {
       );
       await _player.play();
     }
+  }
+
+  Future<Duration?> _loadRemoteTrack(
+    MusicTrack track, {
+    required MediaItem tag,
+  }) async {
+    final streamUrl = _audiusApiService.resolveStreamUrl(track).trim();
+
+    try {
+      return await _setRemoteUrl(
+        track,
+        tag: tag,
+        url: streamUrl,
+        strategy: 'canonical-audius-stream',
+      );
+    } catch (error, stackTrace) {
+      _logErrorDetails(
+        error,
+        track: track,
+        context: 'load canonical remote source',
+      );
+
+      if (!_shouldRetryRemoteLoad(error)) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+
+      return _retryAndroidRemoteTrackLoad(
+        track,
+        tag: tag,
+        failedUrl: streamUrl,
+        initialError: error,
+        initialStackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<Duration?> _retryAndroidRemoteTrackLoad(
+    MusicTrack track, {
+    required MediaItem tag,
+    required String failedUrl,
+    required Object initialError,
+    required StackTrace initialStackTrace,
+  }) async {
+    debugPrint(
+      '[Audio] Android fallback after canonical stream failure'
+      ' | platform=$_platformLabel'
+      ' | trackId=${track.id}'
+      ' | title=${track.title}'
+      ' | failedUrl=$failedUrl'
+      ' | exception=$initialError',
+    );
+    debugPrint('$initialStackTrace');
+
+    await _resetAfterLoadFailure(track);
+
+    final freshStreamUrl = await _audiusApiService.resolveFreshPlaybackUrl(
+      track,
+    );
+    return _setRemoteUrl(
+      track,
+      tag: tag,
+      url: freshStreamUrl.trim(),
+      strategy: 'android-fresh-direct-stream',
+    );
+  }
+
+  Future<void> _resetAfterLoadFailure(MusicTrack track) async {
+    try {
+      debugPrint(
+        '[Audio] Resetting player after load failure'
+        ' | platform=$_platformLabel'
+        ' | trackId=${track.id}'
+        ' | title=${track.title}',
+      );
+      await _player.stop();
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[Audio] Failed to reset player after load failure'
+        ' | platform=$_platformLabel'
+        ' | trackId=${track.id}'
+        ' | title=${track.title}'
+        ' | exception=$error',
+      );
+      debugPrint('$stackTrace');
+    }
+
+    _loadedTrackKey = null;
+    _position = Duration.zero;
+    _bufferedPosition = Duration.zero;
+    _processingState = ProcessingState.idle;
+    notifyListeners();
+  }
+
+  Future<Duration?> _setRemoteUrl(
+    MusicTrack track, {
+    required MediaItem tag,
+    required String url,
+    required String strategy,
+  }) async {
+    debugPrint(
+      '[Audio] setUrl'
+      ' | platform=$_platformLabel'
+      ' | trackId=${track.id}'
+      ' | title=${track.title}'
+      ' | strategy=$strategy'
+      ' | url=$url',
+    );
+    return _player.setUrl(url, tag: tag);
   }
 
   MediaItem _mediaItemForTrack(MusicTrack track) {
@@ -675,19 +784,18 @@ class AudioPlayerService extends ChangeNotifier {
     String? initialTrackId,
     required int initialIndex,
   }) {
-    final playableTracks =
-        tracks.where(_canQueueTrack).fold<List<MusicTrack>>(<MusicTrack>[], (
-          result,
-          track,
-        ) {
-          final alreadyPresent = result.any(
-            (existing) => existing.cacheKey == track.cacheKey,
-          );
-          if (!alreadyPresent) {
-            result.add(track);
-          }
-          return result;
-        });
+    final playableTracks = tracks.where(_canQueueTrack).fold<List<MusicTrack>>(
+      <MusicTrack>[],
+      (result, track) {
+        final alreadyPresent = result.any(
+          (existing) => existing.cacheKey == track.cacheKey,
+        );
+        if (!alreadyPresent) {
+          result.add(track);
+        }
+        return result;
+      },
+    );
 
     if (playableTracks.isEmpty) {
       return null;
@@ -720,7 +828,8 @@ class AudioPlayerService extends ChangeNotifier {
       return sequentialNext;
     }
 
-    if (_loopMode == LoopMode.all || onCompletion && _loopMode == LoopMode.all) {
+    if (_loopMode == LoopMode.all ||
+        onCompletion && _loopMode == LoopMode.all) {
       return 0;
     }
 
@@ -822,6 +931,7 @@ class AudioPlayerService extends ChangeNotifier {
               ' | exception=$error',
             );
             debugPrint('$stackTrace');
+            _logErrorDetails(error, track: subject, context: action);
             _recordError(
               _messageForCommandFailure(
                 error,
@@ -898,15 +1008,15 @@ class AudioPlayerService extends ChangeNotifier {
     if (error is MissingPluginException ||
         error.toString().contains('MissingPluginException')) {
       return 'Audio playback is not ready on $_platformLabel yet. '
-          'Run `flutter pub get`, rebuild Crabify, and make sure the '
-          'desktop just_audio backend is registered.';
+          'Rebuild Crabify and make sure the audio plugins are registered for this platform.';
     }
 
     if (error is PlayerException) {
       final detail = _cleanErrorText(error.message);
+      final codeSuffix = error.code > 0 ? ' (player code ${error.code})' : '';
       return detail.isEmpty
-          ? 'Crabify could not $action for $trackLabel.'
-          : 'Crabify could not $action for $trackLabel: $detail';
+          ? 'Crabify could not $action for $trackLabel$codeSuffix.'
+          : 'Crabify could not $action for $trackLabel: $detail$codeSuffix';
     }
 
     if (error is PlayerInterruptedException) {
@@ -923,12 +1033,65 @@ class AudioPlayerService extends ChangeNotifier {
           : 'Crabify could not open the local file for $trackLabel: $detail';
     }
 
+    if (error is PlatformException) {
+      final detail = _cleanErrorText(error.message);
+      final detailsText = _cleanErrorText(error.details?.toString());
+      final mergedDetail = <String>[
+        if (detail.isNotEmpty) detail,
+        if (detailsText.isNotEmpty && detailsText != detail) detailsText,
+      ].join(' | ');
+
+      return mergedDetail.isEmpty
+          ? 'Crabify could not $action for $trackLabel.'
+          : 'Crabify could not $action for $trackLabel: $mergedDetail';
+    }
+
     final detail = _cleanErrorText(error.toString());
     if (detail.isNotEmpty) {
       return detail;
     }
 
     return fallbackMessage ?? 'Unable to $action right now.';
+  }
+
+  bool _shouldRetryRemoteLoad(Object error) {
+    if (kIsWeb || !Platform.isAndroid) {
+      return false;
+    }
+    return error is PlayerException || error is PlatformException;
+  }
+
+  void _logErrorDetails(
+    Object error, {
+    MusicTrack? track,
+    required String context,
+  }) {
+    if (error is PlayerException) {
+      debugPrint(
+        '[Audio] PlayerException details'
+        ' | context=$context'
+        ' | platform=$_platformLabel'
+        ' | trackId=${track?.id ?? 'none'}'
+        ' | title=${track?.title ?? 'none'}'
+        ' | code=${error.code}'
+        ' | index=${error.index}'
+        ' | message=${error.message}',
+      );
+      return;
+    }
+
+    if (error is PlatformException) {
+      debugPrint(
+        '[Audio] PlatformException details'
+        ' | context=$context'
+        ' | platform=$_platformLabel'
+        ' | trackId=${track?.id ?? 'none'}'
+        ' | title=${track?.title ?? 'none'}'
+        ' | code=${error.code}'
+        ' | message=${error.message}'
+        ' | details=${error.details}',
+      );
+    }
   }
 
   String _cleanErrorText(String? raw) {

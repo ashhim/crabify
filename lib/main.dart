@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -25,6 +26,17 @@ Future<void> main() async {
       androidNotificationChannelId: 'com.example.crabify.audio',
       androidNotificationChannelName: 'Crabify Playback',
       androidNotificationOngoing: true,
+    );
+    debugPrint(
+      '[Audio] JustAudioBackground initialized on ${Platform.operatingSystem}.',
+    );
+  }
+
+  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+    final audioSession = await AudioSession.instance;
+    await audioSession.configure(AudioSessionConfiguration.music());
+    debugPrint(
+      '[Audio] Audio session configured on ${Platform.operatingSystem}.',
     );
   }
 

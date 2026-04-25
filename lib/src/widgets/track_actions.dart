@@ -9,8 +9,15 @@ Future<void> showTrackActionsSheet(
   BuildContext context, {
   required MusicTrack track,
 }) {
+  final parentContext = context;
   final library = context.read<LibraryService>();
   final downloadInProgress = library.progressFor(track.id) != null;
+  final deleteLabel = switch (track.origin) {
+    TrackOrigin.downloaded => 'Delete downloaded file',
+    TrackOrigin.local => 'Delete imported file',
+    TrackOrigin.uploaded => 'Delete local upload',
+    TrackOrigin.online => null,
+  };
 
   return showModalBottomSheet<void>(
     context: context,
@@ -18,7 +25,7 @@ Future<void> showTrackActionsSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
-    builder: (context) {
+    builder: (sheetContext) {
       return SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
@@ -50,7 +57,7 @@ Future<void> showTrackActionsSheet(
                         ? 'Remove from liked songs'
                         : 'Add to liked songs',
                 onTap: () async {
-                  Navigator.of(context).pop();
+                  Navigator.of(sheetContext).pop();
                   await library.toggleLike(track.id);
                 },
               ),
@@ -58,10 +65,10 @@ Future<void> showTrackActionsSheet(
                 icon: Icons.queue_music_rounded,
                 title: 'Add to queue',
                 onTap: () async {
-                  Navigator.of(context).pop();
+                  Navigator.of(sheetContext).pop();
                   await library.addToQueue(track);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                  if (parentContext.mounted) {
+                    ScaffoldMessenger.of(parentContext).showSnackBar(
                       const SnackBar(content: Text('Added to queue')),
                     );
                   }
@@ -70,7 +77,9 @@ Future<void> showTrackActionsSheet(
               _ActionTile(
                 icon: Icons.download_rounded,
                 title:
-                    track.downloadable
+                    track.hasValidLocalSource
+                        ? 'Already stored locally'
+                        : track.downloadable
                         ? library.isDownloaded(track.id)
                             ? 'Downloaded'
                             : downloadInProgress
@@ -78,24 +87,25 @@ Future<void> showTrackActionsSheet(
                             : 'Download for offline'
                         : 'Download unavailable',
                 enabled:
+                    !track.hasValidLocalSource &&
                     track.downloadable &&
                     !library.isDownloaded(track.id) &&
                     !downloadInProgress,
                 onTap: () async {
-                  Navigator.of(context).pop();
+                  Navigator.of(sheetContext).pop();
                   try {
                     await library.downloadTrack(track);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                    if (parentContext.mounted) {
+                      ScaffoldMessenger.of(parentContext).showSnackBar(
                         const SnackBar(
                           content: Text('Saved to offline downloads'),
                         ),
                       );
                     }
                   } catch (error) {
-                    if (context.mounted) {
+                    if (parentContext.mounted) {
                       ScaffoldMessenger.of(
-                        context,
+                        parentContext,
                       ).showSnackBar(SnackBar(content: Text(error.toString())));
                     }
                   }
@@ -105,10 +115,43 @@ Future<void> showTrackActionsSheet(
                 icon: Icons.playlist_add_rounded,
                 title: 'Add to playlist',
                 onTap: () async {
-                  Navigator.of(context).pop();
-                  await _showPlaylistPicker(context, trackId: track.id);
+                  Navigator.of(sheetContext).pop();
+                  await _showPlaylistPicker(parentContext, trackId: track.id);
                 },
               ),
+              if (deleteLabel != null)
+                _ActionTile(
+                  icon: Icons.delete_outline_rounded,
+                  title: deleteLabel,
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    final confirmed = await _confirmDeleteLocalTrack(
+                      parentContext,
+                      track: track,
+                    );
+                    if (confirmed != true || !parentContext.mounted) {
+                      return;
+                    }
+                    try {
+                      await library.deleteLocalTrack(track);
+                      if (parentContext.mounted) {
+                        ScaffoldMessenger.of(parentContext).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              '${track.title} was removed from this device',
+                            ),
+                          ),
+                        );
+                      }
+                    } catch (error) {
+                      if (parentContext.mounted) {
+                        ScaffoldMessenger.of(parentContext).showSnackBar(
+                          SnackBar(content: Text(error.toString())),
+                        );
+                      }
+                    }
+                  },
+                ),
             ],
           ),
         ),
@@ -191,6 +234,34 @@ Future<void> _showPlaylistPicker(
                 );
               }).toList(),
         ),
+      );
+    },
+  );
+}
+
+Future<bool?> _confirmDeleteLocalTrack(
+  BuildContext context, {
+  required MusicTrack track,
+}) {
+  return showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: CrabifyColors.surfaceRaised,
+        title: const Text('Delete local file?'),
+        content: Text(
+          'This removes ${track.title} from Crabify storage on this device. Online copies are not affected.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
       );
     },
   );
