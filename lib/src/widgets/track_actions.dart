@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/music_track.dart';
 import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
+import '../screens/edit_track_screen.dart';
 
 Future<void> showTrackActionsSheet(
   BuildContext context, {
@@ -48,6 +49,19 @@ Future<void> showTrackActionsSheet(
                 ),
               ),
               const SizedBox(height: 18),
+              _ActionTile(
+                icon: Icons.edit_rounded,
+                title: 'Edit local metadata',
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await Navigator.of(parentContext).push<MusicTrack>(
+                    MaterialPageRoute<MusicTrack>(
+                      builder: (_) => EditTrackScreen(track: track),
+                      fullscreenDialog: true,
+                    ),
+                  );
+                },
+              ),
               _ActionTile(
                 icon:
                     library.isLiked(track.id)

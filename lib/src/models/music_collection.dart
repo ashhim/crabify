@@ -26,6 +26,7 @@ class MusicCollection {
     required this.description,
     required this.type,
     required this.trackIds,
+    this.artistIds = const <String>[],
     this.artworkUrl,
     this.artworkPath,
     this.editable = false,
@@ -40,6 +41,7 @@ class MusicCollection {
   final String description;
   final CollectionType type;
   final List<String> trackIds;
+  final List<String> artistIds;
   final String? artworkUrl;
   final String? artworkPath;
   final bool editable;
@@ -54,6 +56,7 @@ class MusicCollection {
     String? description,
     CollectionType? type,
     List<String>? trackIds,
+    List<String>? artistIds,
     String? artworkUrl,
     String? artworkPath,
     bool? editable,
@@ -72,6 +75,7 @@ class MusicCollection {
       description: description ?? this.description,
       type: type ?? this.type,
       trackIds: trackIds ?? this.trackIds,
+      artistIds: artistIds ?? this.artistIds,
       artworkUrl: clearArtworkUrl ? null : artworkUrl ?? this.artworkUrl,
       artworkPath: clearArtworkPath ? null : artworkPath ?? this.artworkPath,
       editable: editable ?? this.editable,
@@ -91,6 +95,7 @@ class MusicCollection {
       'description': description,
       'type': type.name,
       'trackIds': trackIds,
+      'artistIds': artistIds,
       'artworkUrl': artworkUrl,
       'artworkPath': artworkPath,
       'editable': editable,
@@ -109,6 +114,10 @@ class MusicCollection {
       type: collectionTypeFromJson(json['type'] as String?),
       trackIds:
           (json['trackIds'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<String>()
+              .toList(),
+      artistIds:
+          (json['artistIds'] as List<dynamic>? ?? const <dynamic>[])
               .whereType<String>()
               .toList(),
       artworkUrl: json['artworkUrl'] as String?,

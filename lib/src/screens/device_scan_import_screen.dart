@@ -19,11 +19,36 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
   String? _error;
   List<DeviceAudioCandidate> _candidates = const <DeviceAudioCandidate>[];
   final Set<String> _selectedPaths = <String>{};
+  final TextEditingController _searchController = TextEditingController();
+
+  List<DeviceAudioCandidate> get _visibleCandidates {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return _candidates;
+    }
+    return _candidates.where((candidate) {
+      final haystack =
+          <String>[
+            candidate.title,
+            candidate.artistName,
+            candidate.albumTitle ?? '',
+            path.basename(candidate.path),
+          ].join(' ').toLowerCase();
+      return haystack.contains(query);
+    }).toList();
+  }
 
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(() => setState(() {}));
     _loadCandidates();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -34,14 +59,11 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
         backgroundColor: CrabifyColors.topBar,
         title: const Text('Auto detect songs'),
         actions: <Widget>[
-          if (_candidates.isNotEmpty)
+          if (_visibleCandidates.isNotEmpty)
             IconButton(
-              onPressed:
-                  _selectedPaths.length == _candidates.length
-                      ? _clearAll
-                      : _selectAll,
+              onPressed: _allVisibleSelected ? _clearAll : _selectAll,
               icon: Icon(
-                _selectedPaths.length == _candidates.length
+                _allVisibleSelected
                     ? Icons.deselect_rounded
                     : Icons.select_all_rounded,
               ),
@@ -78,43 +100,65 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
                       ),
                     );
                   }
-                  return ListView.builder(
+                  final visibleCandidates = _visibleCandidates;
+                  return ListView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                    itemCount: _candidates.length,
-                    itemBuilder: (context, index) {
-                      final candidate = _candidates[index];
-                      final alreadyImported = context
-                          .read<LibraryService>()
-                          .isImportedSourcePath(candidate.path);
-                      final selected = _selectedPaths.contains(candidate.path);
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: SurfaceCard(
-                          padding: EdgeInsets.zero,
-                          child: CheckboxListTile(
-                            value: alreadyImported ? true : selected,
-                            onChanged:
-                                alreadyImported
-                                    ? null
-                                    : (_) => _togglePath(candidate.path),
-                            title: Text(candidate.title),
-                            subtitle: Text(
-                              [
-                                candidate.artistName,
-                                if ((candidate.albumTitle ?? '').isNotEmpty)
-                                  candidate.albumTitle!,
-                                if (candidate.durationSeconds != null)
-                                  _formatDuration(candidate.durationSeconds!),
-                                if (candidate.requiresConversion) 'MP4 -> MP3',
-                                if (alreadyImported) 'Already imported',
-                                path.basename(candidate.path),
-                              ].join(' - '),
-                            ),
-                            controlAffinity: ListTileControlAffinity.leading,
-                          ),
+                    children: <Widget>[
+                      TextField(
+                        controller: _searchController,
+                        decoration: const InputDecoration(
+                          hintText: 'Search detected songs',
+                          prefixIcon: Icon(Icons.search_rounded),
                         ),
-                      );
-                    },
+                      ),
+                      const SizedBox(height: 16),
+                      if (visibleCandidates.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'No scanned songs match that search.',
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      else
+                        ...visibleCandidates.map((candidate) {
+                          final alreadyImported = context
+                              .read<LibraryService>()
+                              .isImportedSourcePath(candidate.path);
+                          final selected = _selectedPaths.contains(
+                            candidate.path,
+                          );
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: SurfaceCard(
+                              padding: EdgeInsets.zero,
+                              child: CheckboxListTile(
+                                value: alreadyImported ? true : selected,
+                                onChanged:
+                                    alreadyImported
+                                        ? null
+                                        : (_) => _togglePath(candidate.path),
+                                title: Text(candidate.title),
+                                subtitle: Text(
+                                  [
+                                    candidate.artistName,
+                                    if ((candidate.albumTitle ?? '').isNotEmpty)
+                                      candidate.albumTitle!,
+                                    if (candidate.durationSeconds != null)
+                                      _formatDuration(
+                                        candidate.durationSeconds!,
+                                      ),
+                                    if (alreadyImported) 'Already imported',
+                                    path.basename(candidate.path),
+                                  ].join(' - '),
+                                ),
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                              ),
+                            ),
+                          );
+                        }),
+                    ],
                   );
                 },
               ),
@@ -180,11 +224,12 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
 
   void _selectAll() {
     final library = context.read<LibraryService>();
+    final visibleCandidates = _visibleCandidates;
     setState(() {
       _selectedPaths
         ..clear()
         ..addAll(
-          _candidates
+          visibleCandidates
               .where(
                 (candidate) => !library.isImportedSourcePath(candidate.path),
               )
@@ -208,6 +253,14 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
     if (!mounted) {
       return;
     }
+    if (importedCount == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No new songs were imported from the selected items.'),
+        ),
+      );
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -224,5 +277,19 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
     final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
     final remainder = (seconds % 60).toString().padLeft(2, '0');
     return '$minutes:$remainder';
+  }
+
+  bool get _allVisibleSelected {
+    final library = context.read<LibraryService>();
+    final visibleCandidates =
+        _visibleCandidates
+            .where((candidate) => !library.isImportedSourcePath(candidate.path))
+            .toList();
+    if (visibleCandidates.isEmpty) {
+      return false;
+    }
+    return visibleCandidates.every(
+      (candidate) => _selectedPaths.contains(candidate.path),
+    );
   }
 }

@@ -26,7 +26,11 @@ class DeviceMediaScannerService {
         (rawResults ?? const <dynamic>[])
             .whereType<Map<Object?, Object?>>()
             .map(DeviceAudioCandidate.fromJson)
-            .where((candidate) => candidate.path.trim().isNotEmpty)
+            .where(
+              (candidate) =>
+                  candidate.path.trim().isNotEmpty &&
+                  !candidate.path.toLowerCase().endsWith('.mp4'),
+            )
             .toList();
 
     debugPrint('[Import] Device scan returned ${candidates.length} items.');

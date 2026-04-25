@@ -26,7 +26,7 @@ class HomeScreen extends StatelessWidget {
                 ? library.recentTracks.take(4).toList()
                 : library.onlineTracks.take(4).toList();
         final playlists = library.playlists.take(6).toList();
-        final onlineTracks = library.onlineTracks.take(8).toList();
+        final onlineTracks = library.onlineTracks;
         final offlineTracks = library.localTracks.take(6).toList();
         final localArtists =
             library.artists
@@ -151,37 +151,40 @@ class HomeScreen extends StatelessWidget {
                       final sectionHeight = cardWidth + 96;
                       return SizedBox(
                         height: sectionHeight,
-                        child: ListView.separated(
+                        child: ListView.builder(
                           scrollDirection: Axis.horizontal,
                           itemBuilder: (context, index) {
-                            final track = onlineTracks[index];
-                            return _TrackCard(
-                              track: track,
-                              width: cardWidth,
-                              onTap:
-                                  () => library.playTracks(
-                                    onlineTracks,
-                                    selectedTrackId: track.id,
-                                  ),
+                            if (onlineTracks.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final track =
+                                onlineTracks[index % onlineTracks.length];
+                            return Padding(
+                              padding: EdgeInsets.only(
+                                right: index == 191 ? 0 : 14,
+                              ),
+                              child: _TrackCard(
+                                track: track,
+                                width: cardWidth,
+                                onTap:
+                                    () => library.playTracks(
+                                      onlineTracks,
+                                      selectedTrackId: track.id,
+                                    ),
+                              ),
                             );
                           },
-                          separatorBuilder:
-                              (_, __) => const SizedBox(width: 14),
-                          itemCount: onlineTracks.length,
+                          itemCount: onlineTracks.isEmpty ? 0 : 192,
                         ),
                       );
                     },
                   ),
-                  const SizedBox(height: 28),
-                  _SectionHeader(title: 'Artist'),
-                  const SizedBox(height: 14),
-                  if (localArtists.isEmpty)
-                    const SurfaceCard(
-                      child: Text(
-                        'Import or download local tracks and Crabify will build artist pages automatically.',
-                      ),
-                    )
-                  else
+                  if (localArtists.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 28),
+                    if (localArtists.length >= 2) ...<Widget>[
+                      _SectionHeader(title: 'Artist'),
+                      const SizedBox(height: 14),
+                    ],
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final cardWidth = _responsiveCardWidth(
@@ -206,19 +209,16 @@ class HomeScreen extends StatelessWidget {
                         );
                       },
                     ),
-                  const SizedBox(height: 28),
-                  _SectionHeader(
-                    title: 'Offline library',
-                    actionLabel: offlineTracks.isEmpty ? null : 'Manage',
-                  ),
-                  const SizedBox(height: 14),
-                  if (offlineTracks.isEmpty)
-                    const SurfaceCard(
-                      child: Text(
-                        'Import local files or download eligible online tracks to keep playback going when you are offline.',
+                  ],
+                  if (offlineTracks.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 28),
+                    if (offlineTracks.length >= 2) ...<Widget>[
+                      _SectionHeader(
+                        title: 'Offline library',
+                        actionLabel: 'Manage',
                       ),
-                    )
-                  else
+                      const SizedBox(height: 14),
+                    ],
                     Column(
                       children:
                           offlineTracks.map((track) {
@@ -249,6 +249,14 @@ class HomeScreen extends StatelessWidget {
                             );
                           }).toList(),
                     ),
+                  ] else ...<Widget>[
+                    const SizedBox(height: 28),
+                    const SurfaceCard(
+                      child: Text(
+                        'Import local files or download eligible online tracks to keep playback going when you are offline.',
+                      ),
+                    ),
+                  ],
                 ],
               ],
             ),

@@ -9,6 +9,7 @@ import '../theme/crabify_theme.dart';
 import '../widgets/artwork_tile.dart';
 import '../widgets/track_actions.dart';
 import '../widgets/track_tile.dart';
+import 'playlist_artist_picker_screen.dart';
 
 class CollectionDetailScreen extends StatelessWidget {
   const CollectionDetailScreen({super.key, required this.collection});
@@ -34,6 +35,20 @@ class CollectionDetailScreen extends StatelessWidget {
             actions:
                 isPlaylist
                     ? <Widget>[
+                      IconButton(
+                        tooltip: 'Playlist artists',
+                        onPressed:
+                            () => Navigator.of(context).push<bool>(
+                              MaterialPageRoute<bool>(
+                                builder:
+                                    (_) => PlaylistArtistPickerScreen(
+                                      playlist: currentCollection,
+                                    ),
+                                fullscreenDialog: true,
+                              ),
+                            ),
+                        icon: const Icon(Icons.person_search_rounded),
+                      ),
                       IconButton(
                         tooltip: 'Playlist image',
                         onPressed:
@@ -69,7 +84,9 @@ class CollectionDetailScreen extends StatelessWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-              child: Row(
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
                 children: <Widget>[
                   FilledButton.icon(
                     onPressed:
@@ -104,10 +121,53 @@ class CollectionDetailScreen extends StatelessWidget {
                     icon: const Icon(Icons.shuffle_rounded),
                     label: const Text('Shuffle'),
                   ),
+                  if (isPlaylist)
+                    FilledButton.tonalIcon(
+                      onPressed:
+                          () => Navigator.of(context).push<bool>(
+                            MaterialPageRoute<bool>(
+                              builder:
+                                  (_) => PlaylistArtistPickerScreen(
+                                    playlist: currentCollection,
+                                  ),
+                              fullscreenDialog: true,
+                            ),
+                          ),
+                      icon: const Icon(Icons.people_alt_rounded),
+                      label: const Text('Artists'),
+                    ),
                 ],
               ),
             ),
           ),
+          if (isPlaylist && currentCollection.artistIds.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children:
+                      currentCollection.artistIds.map((artistId) {
+                        final artist = library.artistById(artistId);
+                        return InputChip(
+                          label: Text(artist?.name ?? artistId),
+                          onPressed:
+                              artist == null
+                                  ? null
+                                  : () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder:
+                                          (_) => ArtistDetailScreen(
+                                            artist: artist,
+                                          ),
+                                    ),
+                                  ),
+                        );
+                      }).toList(),
+                ),
+              ),
+            ),
           if (tracks.isEmpty)
             const SliverToBoxAdapter(
               child: Padding(
@@ -527,6 +587,11 @@ class ArtistDetailScreen extends StatelessWidget {
                   ),
                   label: Text(isSaved ? 'Remove' : 'Save'),
                 ),
+                FilledButton.tonalIcon(
+                  onPressed: () => _showArtistEditor(context, currentArtist),
+                  icon: const Icon(Icons.edit_rounded),
+                  label: const Text('Edit'),
+                ),
               ],
             ),
           ),
@@ -663,6 +728,73 @@ class ArtistDetailScreen extends StatelessWidget {
     }
 
     await context.read<LibraryService>().removeArtistFromLibrary(artist);
+  }
+
+  Future<void> _showArtistEditor(
+    BuildContext context,
+    ArtistProfile artist,
+  ) async {
+    final nameController = TextEditingController(text: artist.name);
+    final descriptionController = TextEditingController(
+      text: artist.description,
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: CrabifyColors.surfaceRaised,
+          title: const Text('Edit artist'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Artist name'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descriptionController,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                ),
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+
+    try {
+      await context.read<LibraryService>().updateArtistDetails(
+        artist: artist,
+        name: nameController.text,
+        description: descriptionController.text,
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
   }
 
   Future<void> _showArtistCoverSettings(

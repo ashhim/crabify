@@ -299,6 +299,29 @@ class AudioPlayerService extends ChangeNotifier {
     }
   }
 
+  void refreshTrackMetadata(MusicTrack updatedTrack) {
+    var changed = false;
+    _queue =
+        _queue.map((track) {
+          if (track.id != updatedTrack.id) {
+            return track;
+          }
+          changed = true;
+          return updatedTrack;
+        }).toList();
+
+    if (!changed) {
+      return;
+    }
+
+    if (currentTrack?.id == updatedTrack.id) {
+      _announceTrackChange();
+      return;
+    }
+
+    notifyListeners();
+  }
+
   Future<void> play() async {
     if (_queue.isEmpty) {
       _recordError('Pick a track first, then press play.');

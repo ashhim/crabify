@@ -65,6 +65,7 @@ class LibraryService extends ChangeNotifier {
   List<MusicCollection> playlists = <MusicCollection>[];
   List<ArtistProfile> _savedArtists = <ArtistProfile>[];
   final Map<String, MusicTrack> _retainedTracks = <String, MusicTrack>{};
+  final Map<String, MusicTrack> _trackOverrides = <String, MusicTrack>{};
   final Set<String> _likedTrackIds = <String>{};
   final List<String> _recentTrackIds = <String>[];
   final Map<String, double> _downloadProgress = <String, double>{};
@@ -146,6 +147,8 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> initialize() async {
     _restoreState(_localStorageService.loadState());
+    _applyTrackOverrides();
+    _syncArtistPlaylists();
     _refreshPlaylistCoverArtwork();
     _refreshArtistCoverArtwork();
     final removedMissingTracks = await _pruneMissingManagedLocalTracks();
@@ -168,13 +171,15 @@ class LibraryService extends ChangeNotifier {
 
     try {
       final freshTracks = await _audiusApiService.fetchTrendingTracks(
-        limit: 12,
+        limit: 32,
       );
       onlineTracks = freshTracks;
+      _applyTrackOverrides();
       _rememberTracks(freshTracks);
       usingFallbackCatalog = false;
       onlineError = null;
       _syncStarterPlaylistsWithOnlineTracks();
+      _syncArtistPlaylists();
       _refreshPlaylistCoverArtwork();
       _refreshArtistCoverArtwork();
       debugPrint(
@@ -184,6 +189,7 @@ class LibraryService extends ChangeNotifier {
       debugPrint('[Audius] Online library refresh failed: $error');
       if (onlineTracks.isEmpty) {
         onlineTracks = DemoCatalog.onlineTracks();
+        _applyTrackOverrides();
         usingFallbackCatalog = true;
         onlineError =
             'Audius could not be reached, so Crabify loaded the built-in demo catalog instead.';
@@ -200,6 +206,7 @@ class LibraryService extends ChangeNotifier {
         playlists = DemoCatalog.starterPlaylists(onlineTracks);
         _refreshPlaylistCoverArtwork();
       }
+      _syncArtistPlaylists();
       _refreshArtistCoverArtwork();
     }
 
@@ -220,6 +227,7 @@ class LibraryService extends ChangeNotifier {
     List<MusicTrack> remoteResults = <MusicTrack>[];
     try {
       remoteResults = await _audiusApiService.searchTracks(trimmed, limit: 12);
+      remoteResults = remoteResults.map(_applyTrackOverride).toList();
       _rememberTracks(remoteResults);
     } catch (error) {
       debugPrint('[Audius] Search failed for "$trimmed": $error');
@@ -369,6 +377,20 @@ class LibraryService extends ChangeNotifier {
       _updateLastPlayedPlaylistCovers(track);
       _updateArtistLastPlayedCover(track);
     }
+    _cleanupDanglingTrackReferences();
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> removeRecentTrack(String trackId) async {
+    _recentTrackIds.removeWhere((id) => id == trackId);
+    _cleanupDanglingTrackReferences();
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> clearRecentTracks() async {
+    _recentTrackIds.clear();
     _cleanupDanglingTrackReferences();
     await _persistState();
     notifyListeners();
@@ -590,6 +612,8 @@ class LibraryService extends ChangeNotifier {
         notifyListeners();
       }
 
+      _syncArtistPlaylists();
+      _refreshArtistCoverArtwork();
       await _persistState();
     });
     notifyListeners();
@@ -646,6 +670,8 @@ class LibraryService extends ChangeNotifier {
         notifyListeners();
       }
 
+      _syncArtistPlaylists();
+      _refreshArtistCoverArtwork();
       await _persistState();
     });
     notifyListeners();
@@ -688,6 +714,8 @@ class LibraryService extends ChangeNotifier {
       () async {
         importedTrack = await _saveImportedDraft(draft);
         importedTracks = _upsertTrack(importedTracks, importedTrack);
+        _syncArtistPlaylists();
+        _refreshArtistCoverArtwork();
         await _persistState();
       },
     );
@@ -725,6 +753,9 @@ class LibraryService extends ChangeNotifier {
       downloadedTracks = _upsertTrack(downloadedTracks, downloadedTrack);
       _rememberTrack(downloadedTrack);
       _downloadProgress.remove(track.id);
+      _syncArtistPlaylists();
+      _refreshPlaylistCoverArtwork();
+      _refreshArtistCoverArtwork();
       await _persistState();
       notifyListeners();
     } catch (error) {
@@ -778,9 +809,18 @@ class LibraryService extends ChangeNotifier {
       _rememberTrack(fallbackRemoteTrack);
     } else {
       _retainedTracks.remove(track.id);
+      final removedOverride = _trackOverrides.remove(track.id);
+      if (removedOverride != null &&
+          removedOverride.artworkPath != track.artworkPath) {
+        await _localStorageService.deleteManagedFile(
+          removedOverride.artworkPath,
+        );
+      }
     }
 
     _cleanupDanglingTrackReferences();
+    _syncArtistPlaylists();
+    _refreshArtistCoverArtwork();
     await _persistState();
     notifyListeners();
   }
@@ -837,6 +877,8 @@ class LibraryService extends ChangeNotifier {
 
     uploadedTracks = <MusicTrack>[uploadedTrack, ...uploadedTracks];
     _rememberTrack(uploadedTrack);
+    _syncArtistPlaylists();
+    _refreshArtistCoverArtwork();
     await _persistState();
     if (submissionResult.submittedRemotely) {
       unawaited(refreshOnlineLibrary(silent: true));
@@ -858,12 +900,47 @@ class LibraryService extends ChangeNotifier {
       description: 'Built inside Crabify from your online and offline library.',
       type: CollectionType.playlist,
       trackIds: const <String>[],
+      artistIds: const <String>[],
       editable: true,
       coverMode: PlaylistCoverMode.lastPlayed,
     );
     playlists = <MusicCollection>[newPlaylist, ...playlists];
     await _persistState();
     notifyListeners();
+  }
+
+  Future<MusicCollection> createPlaylistFromArtists({
+    required String title,
+    required List<String> artistIds,
+  }) async {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Playlist title cannot be empty.');
+    }
+
+    final nextPlaylist = _applyArtistSelectionToPlaylist(
+      MusicCollection(
+        id: _newId('playlist'),
+        title: trimmed,
+        subtitle:
+            artistIds.isEmpty
+                ? 'Custom playlist'
+                : 'Built from selected artists',
+        description:
+            'Built inside Crabify from selected artists across your online and offline library.',
+        type: CollectionType.playlist,
+        trackIds: const <String>[],
+        artistIds: artistIds,
+        editable: true,
+        coverMode: PlaylistCoverMode.lastPlayed,
+      ),
+      previousArtistIds: const <String>[],
+    );
+
+    playlists = <MusicCollection>[nextPlaylist, ...playlists];
+    await _persistState();
+    notifyListeners();
+    return nextPlaylist;
   }
 
   Future<void> deletePlaylist(String playlistId) async {
@@ -909,6 +986,34 @@ class LibraryService extends ChangeNotifier {
             trackIds: <String>[...playlist.trackIds, trackId],
           );
         }).toList();
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> updatePlaylistArtistSelection({
+    required String playlistId,
+    required String title,
+    required List<String> artistIds,
+  }) async {
+    playlists =
+        playlists.map((playlist) {
+          if (playlist.id != playlistId) {
+            return playlist;
+          }
+          final updatedPlaylist = playlist.copyWith(
+            title: title.trim().isEmpty ? playlist.title : title.trim(),
+            subtitle:
+                artistIds.isEmpty
+                    ? 'Custom playlist'
+                    : 'Built from selected artists',
+            artistIds: artistIds,
+          );
+          return _applyArtistSelectionToPlaylist(
+            updatedPlaylist,
+            previousArtistIds: playlist.artistIds,
+          );
+        }).toList();
+    _refreshPlaylistCoverArtwork();
     await _persistState();
     notifyListeners();
   }
@@ -1071,6 +1176,180 @@ class LibraryService extends ChangeNotifier {
     return _withResolvedPlaylistCover(playlist);
   }
 
+  MusicCollection _applyArtistSelectionToPlaylist(
+    MusicCollection playlist, {
+    required List<String> previousArtistIds,
+  }) {
+    final previousArtistSet = previousArtistIds.toSet();
+    final nextArtistSet = playlist.artistIds.toSet();
+    final nextTrackIds =
+        playlist.trackIds.where((trackId) {
+          final track = trackById(trackId);
+          if (track == null) {
+            return false;
+          }
+          if (!previousArtistSet.contains(track.artistId)) {
+            return true;
+          }
+          return nextArtistSet.contains(track.artistId);
+        }).toList();
+
+    for (final artistId in playlist.artistIds) {
+      for (final track in allTracks.where(
+        (track) => track.artistId == artistId,
+      )) {
+        if (!nextTrackIds.contains(track.id)) {
+          nextTrackIds.add(track.id);
+        }
+      }
+    }
+
+    return _withResolvedPlaylistCover(
+      playlist.copyWith(trackIds: nextTrackIds),
+    );
+  }
+
+  void _syncArtistPlaylists() {
+    playlists =
+        playlists.map((playlist) {
+          if (playlist.artistIds.isEmpty) {
+            return _withResolvedPlaylistCover(playlist);
+          }
+          return _applyArtistSelectionToPlaylist(
+            playlist,
+            previousArtistIds: playlist.artistIds,
+          );
+        }).toList();
+  }
+
+  Future<MusicTrack?> convertPickedMp4ToLibrary() async {
+    final result = await FilePicker.pickFiles(
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: const <String>['mp4'],
+    );
+    final sourcePath = result?.files.single.path;
+    if (sourcePath == null || sourcePath.trim().isEmpty) {
+      return null;
+    }
+
+    if (isImportedSourcePath(sourcePath)) {
+      throw StateError('This MP4 file is already in your offline library.');
+    }
+
+    late final MusicTrack importedTrack;
+    await _runImportOperation<void>(
+      'Converting ${path.basename(sourcePath)} to MP3...',
+      () async {
+        final draft = await _buildImportDraftFromFile(sourcePath);
+        importedTrack = await _saveImportedDraft(draft);
+        importedTracks = _upsertTrack(importedTracks, importedTrack);
+        _syncArtistPlaylists();
+        _refreshArtistCoverArtwork();
+        await _persistState();
+      },
+    );
+    notifyListeners();
+    return importedTrack;
+  }
+
+  Future<MusicTrack> saveTrackEdits({
+    required MusicTrack track,
+    required String title,
+    required String artistName,
+    String? albumTitle,
+    String? genre,
+    String? description,
+    String? coverImagePath,
+    bool clearCover = false,
+  }) async {
+    final current = trackById(track.id) ?? track;
+    final previousArtistId = current.artistId;
+    final existingOverride = _trackOverrides[track.id];
+    final normalizedTitle = title.trim().isEmpty ? current.title : title.trim();
+    final normalizedArtist =
+        artistName.trim().isEmpty ? current.artistName : artistName.trim();
+    final normalizedAlbum =
+        albumTitle == null
+            ? current.albumTitle
+            : (albumTitle.trim().isEmpty ? '' : albumTitle.trim());
+    final normalizedGenre =
+        genre == null || genre.trim().isEmpty ? null : genre.trim();
+    final normalizedDescription =
+        description == null || description.trim().isEmpty
+            ? current.description
+            : description.trim();
+
+    String? nextArtworkPath = current.artworkPath;
+    String? nextArtworkUrl = current.artworkUrl;
+    final previousOverrideArtworkPath = existingOverride?.artworkPath;
+
+    if (clearCover) {
+      nextArtworkPath = null;
+      nextArtworkUrl = null;
+    } else if (coverImagePath != null && coverImagePath.trim().isNotEmpty) {
+      nextArtworkPath = await _localStorageService.copyPlaylistCover(
+        coverImagePath,
+        '${track.id}-track-cover',
+      );
+      nextArtworkUrl = null;
+    }
+
+    if (previousOverrideArtworkPath != null &&
+        previousOverrideArtworkPath != nextArtworkPath) {
+      await _localStorageService.deleteManagedFile(previousOverrideArtworkPath);
+    }
+
+    final updatedTrack = current.copyWith(
+      title: normalizedTitle,
+      artistName: normalizedArtist,
+      artistId: _slug(normalizedArtist),
+      albumTitle: normalizedAlbum,
+      albumId: normalizedAlbum.trim().isEmpty ? null : _slug(normalizedAlbum),
+      clearAlbumId: normalizedAlbum.trim().isEmpty,
+      genre: normalizedGenre,
+      clearGenre: normalizedGenre == null,
+      description: normalizedDescription,
+      clearDescription: normalizedDescription == null,
+      artworkPath: nextArtworkPath,
+      artworkUrl: nextArtworkUrl,
+      clearArtworkPath: nextArtworkPath == null,
+      clearArtworkUrl: nextArtworkUrl == null,
+    );
+
+    _trackOverrides[track.id] = updatedTrack;
+    _savedArtists =
+        _savedArtists.map((artist) {
+          final nextTopTrackIds =
+              artist.topTrackIds
+                  .where((trackId) => trackId != track.id)
+                  .toList();
+          if (artist.id == updatedTrack.artistId &&
+              !nextTopTrackIds.contains(track.id)) {
+            nextTopTrackIds.insert(0, track.id);
+          }
+          return artist.copyWith(topTrackIds: nextTopTrackIds);
+        }).toList();
+    if (previousArtistId != updatedTrack.artistId) {
+      _savedArtists =
+          _savedArtists.where((artist) {
+            if (artist.id != previousArtistId) {
+              return true;
+            }
+            return artist.pinned || artist.manuallyAdded;
+          }).toList();
+    }
+    _applyTrackOverrides();
+    _rememberTrack(updatedTrack);
+    _syncArtistPlaylists();
+    _refreshPlaylistCoverArtwork();
+    _refreshArtistCoverArtwork();
+    _audioPlayerService.refreshTrackMetadata(updatedTrack);
+    await _persistState();
+    notifyListeners();
+    return updatedTrack;
+  }
+
   Future<void> saveArtist(ArtistProfile artist) async {
     final existing = _savedArtistById(artist.id);
     final nextArtist = _decorateArtist(
@@ -1100,6 +1379,53 @@ class LibraryService extends ChangeNotifier {
       ),
     );
     _saveArtistProfile(nextArtist);
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<ArtistProfile> createManualArtist({
+    required String name,
+    String description = '',
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Artist name cannot be empty.');
+    }
+    final artist = ArtistProfile(
+      id: _slug(trimmed),
+      name: trimmed,
+      description: description.trim(),
+      topTrackIds: const <String>[],
+      collectionIds: const <String>[],
+      pinned: true,
+      manuallyAdded: true,
+    );
+    await saveArtist(artist);
+    return savedArtistById(artist.id) ?? artist;
+  }
+
+  Future<void> updateArtistDetails({
+    required ArtistProfile artist,
+    required String name,
+    String description = '',
+  }) async {
+    final existing = _savedArtistById(artist.id) ?? artist;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Artist name cannot be empty.');
+    }
+
+    _saveArtistProfile(
+      _decorateArtist(
+        existing.copyWith(
+          name: trimmed,
+          description: description.trim(),
+          hidden: false,
+          pinned: true,
+          manuallyAdded: true,
+        ),
+      ),
+    );
     await _persistState();
     notifyListeners();
   }
@@ -1356,6 +1682,7 @@ class LibraryService extends ChangeNotifier {
       final base = merged[saved.id] ?? saved;
       merged[saved.id] = _decorateArtist(
         base.copyWith(
+          name: saved.name.isNotEmpty ? saved.name : base.name,
           description:
               saved.description.isNotEmpty
                   ? saved.description
@@ -1785,6 +2112,10 @@ class LibraryService extends ChangeNotifier {
         }).toList();
     _savedArtists =
         _savedArtists.map((artist) {
+          final nextTopTrackIds =
+              artist.topTrackIds
+                  .where((trackId) => availableTrackIds.contains(trackId))
+                  .toList();
           final coverTrackId =
               artist.coverTrackId != null &&
                       availableTrackIds.contains(artist.coverTrackId)
@@ -1792,6 +2123,7 @@ class LibraryService extends ChangeNotifier {
                   : null;
           return _decorateArtist(
             artist.copyWith(
+              topTrackIds: nextTopTrackIds,
               coverTrackId: coverTrackId,
               clearCoverTrackId: coverTrackId == null,
             ),
@@ -1811,6 +2143,12 @@ class LibraryService extends ChangeNotifier {
           !playlists.any((playlist) => playlist.trackIds.contains(trackId)) &&
           !_savedArtists.any((artist) => artist.topTrackIds.contains(trackId));
     });
+    _trackOverrides.removeWhere(
+      (trackId, _) =>
+          !availableTrackIds.contains(trackId) &&
+          !_likedTrackIds.contains(trackId) &&
+          !_recentTrackIds.contains(trackId),
+    );
   }
 
   Future<void> _removeTrackFromQueue(MusicTrack track) async {
@@ -1845,20 +2183,61 @@ class LibraryService extends ChangeNotifier {
     if (!track.hasValidId) {
       return;
     }
-    _retainedTracks[track.id] = track;
+    _retainedTracks[track.id] = _applyTrackOverride(track);
   }
 
   List<MusicTrack> _upsertTrack(List<MusicTrack> tracks, MusicTrack candidate) {
+    final nextCandidate = _applyTrackOverride(candidate);
     final existingIndex = tracks.indexWhere(
-      (track) => track.id == candidate.id,
+      (track) => track.id == nextCandidate.id,
     );
     if (existingIndex < 0) {
-      return <MusicTrack>[candidate, ...tracks];
+      return <MusicTrack>[nextCandidate, ...tracks];
     }
 
     final updated = List<MusicTrack>.from(tracks);
-    updated[existingIndex] = candidate;
+    updated[existingIndex] = nextCandidate;
     return updated;
+  }
+
+  MusicTrack _applyTrackOverride(MusicTrack track) {
+    final override = _trackOverrides[track.id];
+    if (override == null) {
+      return track;
+    }
+
+    return track.copyWith(
+      title: override.title,
+      artistName: override.artistName,
+      artistId: override.artistId,
+      albumTitle: override.albumTitle,
+      albumId: override.albumId,
+      clearAlbumId: override.albumId == null,
+      genre: override.genre,
+      clearGenre: override.genre == null,
+      description: override.description,
+      clearDescription: override.description == null,
+      artworkPath: override.artworkPath,
+      artworkUrl: override.artworkUrl,
+      durationSeconds: override.durationSeconds,
+      clearArtworkPath: override.artworkPath == null,
+      clearArtworkUrl: override.artworkUrl == null,
+    );
+  }
+
+  void _applyTrackOverrides() {
+    onlineTracks = onlineTracks.map(_applyTrackOverride).toList();
+    importedTracks = importedTracks.map(_applyTrackOverride).toList();
+    downloadedTracks = downloadedTracks.map(_applyTrackOverride).toList();
+    uploadedTracks = uploadedTracks.map(_applyTrackOverride).toList();
+
+    final retainedKeys = _retainedTracks.keys.toList();
+    for (final key in retainedKeys) {
+      final track = _retainedTracks[key];
+      if (track != null) {
+        _retainedTracks[key] = _applyTrackOverride(track);
+      }
+    }
   }
 
   void _syncStarterPlaylistsWithOnlineTracks() {
@@ -1966,6 +2345,18 @@ class LibraryService extends ChangeNotifier {
               ),
             ),
       );
+    _trackOverrides
+      ..clear()
+      ..addAll(
+        ((state['trackOverrides'] as Map<String, dynamic>?) ??
+                const <String, dynamic>{})
+            .map(
+              (key, value) => MapEntry(
+                key,
+                MusicTrack.fromJson(value as Map<String, dynamic>),
+              ),
+            ),
+      );
 
     selectedSearchTag =
         state['selectedSearchTag'] as String? ?? selectedSearchTag;
@@ -1987,6 +2378,9 @@ class LibraryService extends ChangeNotifier {
       'likedTrackIds': _likedTrackIds.toList(),
       'recentTrackIds': _recentTrackIds,
       'retainedTracks': _retainedTracks.map(
+        (key, track) => MapEntry(key, track.toJson()),
+      ),
+      'trackOverrides': _trackOverrides.map(
         (key, track) => MapEntry(key, track.toJson()),
       ),
       'selectedSearchTag': selectedSearchTag,

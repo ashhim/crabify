@@ -8,7 +8,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceActivity() {
     private val mediaChannel = "crabify/device_media"
-    private val supportedExtensions = setOf(".mp3", ".wav", ".m4a", ".aac", ".ogg", ".mp4")
+    private val supportedExtensions = setOf(".mp3", ".wav", ".m4a", ".aac", ".ogg")
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -55,39 +55,6 @@ class MainActivity : AudioServiceActivity() {
                     "albumTitle" to cursor.getString(cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM)),
                     "durationSeconds" to (cursor.getLong(cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)) / 1000L).toInt(),
                     "isVideoSource" to false
-                )
-            }
-        }
-
-        val videoProjection = arrayOf(
-            MediaStore.Video.Media.DATA,
-            MediaStore.Video.Media.TITLE,
-            MediaStore.Video.Media.ARTIST,
-            MediaStore.Video.Media.DURATION
-        )
-
-        contentResolver.query(
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            videoProjection,
-            null,
-            null,
-            "${MediaStore.Video.Media.DATE_MODIFIED} DESC"
-        )?.use { cursor ->
-            while (cursor.moveToNext()) {
-                val path = cursor.getString(cursor.getColumnIndex(MediaStore.Video.Media.DATA)) ?: continue
-                if (!path.lowercase().endsWith(".mp4")) {
-                    continue
-                }
-                results.putIfAbsent(
-                    path,
-                    mapOf(
-                        "path" to path,
-                        "title" to cursor.getString(cursor.getColumnIndex(MediaStore.Video.Media.TITLE)),
-                        "artistName" to (cursor.getString(cursor.getColumnIndex(MediaStore.Video.Media.ARTIST)) ?: "Unknown artist"),
-                        "albumTitle" to null,
-                        "durationSeconds" to (cursor.getLong(cursor.getColumnIndex(MediaStore.Video.Media.DURATION)) / 1000L).toInt(),
-                        "isVideoSource" to true
-                    )
                 )
             }
         }
