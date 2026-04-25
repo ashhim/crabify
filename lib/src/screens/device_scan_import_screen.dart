@@ -57,7 +57,7 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: CrabifyColors.topBar,
-        title: const Text('Auto detect songs'),
+        title: const Text('Scan device songs'),
         actions: <Widget>[
           if (_visibleCandidates.isNotEmpty)
             IconButton(

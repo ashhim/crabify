@@ -242,7 +242,7 @@ class _SearchScreenState extends State<SearchScreen> {
         tag: _SearchTag.crabify,
       ),
       (
-        label: 'Downloaded',
+        label: 'Download',
         color: const Color(0xFF5F0F40),
         tag: _SearchTag.downloaded,
       ),

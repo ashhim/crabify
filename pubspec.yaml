@@ -27,7 +27,6 @@ dependencies:
   font_awesome_flutter: ^10.9.1
   path: ^1.9.1
   permission_handler: ^12.0.1
-  ffmpeg_kit_flutter_minimal: ^6.0.8
 
 dev_dependencies:
   flutter_test:

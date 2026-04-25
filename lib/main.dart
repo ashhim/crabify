@@ -13,7 +13,6 @@ import 'src/services/device_media_scanner_service.dart';
 import 'src/services/download_service.dart';
 import 'src/services/library_service.dart';
 import 'src/services/local_storage_service.dart';
-import 'src/services/media_conversion_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,14 +48,12 @@ Future<void> main() async {
   );
   final downloadService = DownloadService(storageService: localStorageService);
   final deviceMediaScannerService = DeviceMediaScannerService();
-  final mediaConversionService = MediaConversionService();
   final libraryService = LibraryService(
     audiusApiService: audiusApiService,
     localStorageService: localStorageService,
     downloadService: downloadService,
     audioPlayerService: audioPlayerService,
     deviceMediaScannerService: deviceMediaScannerService,
-    mediaConversionService: mediaConversionService,
   );
   await libraryService.initialize();
 

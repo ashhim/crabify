@@ -21,10 +21,11 @@ class EditTrackScreen extends StatefulWidget {
 class _EditTrackScreenState extends State<EditTrackScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _titleController;
-  late final TextEditingController _artistController;
+  late final TextEditingController _artistInputController;
   late final TextEditingController _albumController;
   late final TextEditingController _genreController;
   late final TextEditingController _descriptionController;
+  late List<String> _artistTags;
 
   String? _coverImagePath;
   bool _clearCover = false;
@@ -34,18 +35,19 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.track.title);
-    _artistController = TextEditingController(text: widget.track.artistName);
+    _artistInputController = TextEditingController();
     _albumController = TextEditingController(text: widget.track.albumTitle);
     _genreController = TextEditingController(text: widget.track.genre);
     _descriptionController = TextEditingController(
       text: widget.track.description,
     );
+    _artistTags = sanitizeArtistNames(widget.track.creditedArtistNames);
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _artistController.dispose();
+    _artistInputController.dispose();
     _albumController.dispose();
     _genreController.dispose();
     _descriptionController.dispose();
@@ -170,16 +172,43 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                     ),
                     const SizedBox(height: 14),
                     TextFormField(
-                      controller: _artistController,
+                      controller: _artistInputController,
                       enabled: !_saving,
-                      decoration: const InputDecoration(labelText: 'Artist'),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Enter an artist';
-                        }
-                        return null;
-                      },
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => _addArtistTag(),
+                      decoration: InputDecoration(
+                        labelText: 'Add artist',
+                        suffixIcon: TextButton(
+                          onPressed: _saving ? null : _addArtistTag,
+                          child: const Text('Add'),
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 10),
+                    if (_artistTags.isEmpty)
+                      Text(
+                        'Add at least one artist tag.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: CrabifyColors.textSecondary,
+                        ),
+                      )
+                    else
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children:
+                            _artistTags.map((artistName) {
+                              return InputChip(
+                                label: Text(artistName),
+                                onDeleted:
+                                    _saving
+                                        ? null
+                                        : () => setState(
+                                          () => _artistTags.remove(artistName),
+                                        ),
+                              );
+                            }).toList(),
+                      ),
                     const SizedBox(height: 14),
                     TextFormField(
                       controller: _albumController,
@@ -241,8 +270,29 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
     });
   }
 
+  void _addArtistTag() {
+    final nextTags = sanitizeArtistNames(<String>[
+      ..._artistTags,
+      _artistInputController.text,
+    ]);
+    if (nextTags.length == _artistTags.length) {
+      _artistInputController.clear();
+      return;
+    }
+    setState(() {
+      _artistTags = nextTags;
+      _artistInputController.clear();
+    });
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    if (_artistTags.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add at least one artist tag.')),
+      );
       return;
     }
 
@@ -251,7 +301,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       final updatedTrack = await context.read<LibraryService>().saveTrackEdits(
         track: widget.track,
         title: _titleController.text,
-        artistName: _artistController.text,
+        artistNames: _artistTags,
         albumTitle: _albumController.text,
         genre: _genreController.text,
         description: _descriptionController.text,

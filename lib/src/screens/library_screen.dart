@@ -26,7 +26,7 @@ enum _LibraryFilter {
   recent,
 }
 
-enum _ImportFlowAction { quick, custom, autoDetect, convertMp4 }
+enum _ImportFlowAction { quick, custom, autoDetect }
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key, required this.onOpenUpload});
@@ -272,14 +272,55 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     'Save tracks from the online catalog and they will appear here for offline playback.',
               ),
             if (filter == _LibraryFilter.imported)
-              _TrackSection(
-                title: 'Imported audio',
-                tracks: library.importedTracks,
-                emptyTitle: 'No imported tracks yet',
-                emptyMessage:
-                    'Use the import button to scan chosen files from your device and bring them into Crabify.',
-                actionLabel: 'Import',
-                onAction: _importFiles,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          'Imported audio',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      if (!kIsWeb &&
+                          defaultTargetPlatform == TargetPlatform.android)
+                        FilledButton.tonal(
+                          onPressed: _openScanDeviceSongs,
+                          child: const Text('Scan device songs'),
+                        ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: _importFiles,
+                        child: const Text('Choose files'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (library.importedTracks.isEmpty)
+                    const _EmptyCard(
+                      title: 'No imported tracks yet',
+                      message:
+                          'Scan device songs or choose files from your device to bring them into Crabify.',
+                    )
+                  else
+                    ...library.importedTracks.map((track) {
+                      return TrackTile(
+                        track: track,
+                        onTap:
+                            () => library.playTracks(
+                              library.importedTracks,
+                              selectedTrackId: track.id,
+                            ),
+                        trailing: IconButton(
+                          onPressed:
+                              () => showTrackActionsSheet(context, track: track),
+                          icon: const Icon(Icons.more_horiz_rounded),
+                        ),
+                      );
+                    }),
+                ],
               ),
             if (filter == _LibraryFilter.uploads)
               _TrackSection(
@@ -360,21 +401,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ? '1 song${isSaved ? ' • saved' : ''}'
                     : '$trackCount songs${isSaved ? ' • saved' : ''}',
               ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  IconButton(
-                    tooltip: 'Edit artist',
-                    onPressed: () => _showEditArtistDialog(artist),
-                    icon: const Icon(Icons.edit_rounded),
-                  ),
-                  IconButton(
-                    tooltip: 'Remove artist from library',
-                    onPressed: () => _confirmRemoveArtist(artist),
-                    icon: const Icon(Icons.remove_circle_outline_rounded),
-                  ),
-                ],
-              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
             );
           }),
         const SizedBox(height: 24),
@@ -440,7 +467,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   final trackCount = library.tracksForArtist(artist).length;
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
-                    onTap: () => _openArtistDetails(artist),
+                    onTap: () async {
+                      if (!isSaved) {
+                        await library.saveArtist(artist);
+                      }
+                      if (!mounted) {
+                        return;
+                      }
+                      _openArtistDetails(artist);
+                    },
                     leading: ArtworkTile(
                       seed: artist.id,
                       artworkPath: artist.artworkPath,
@@ -455,24 +490,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ? 'Artist match from Crabify'
                           : '$trackCount related tracks',
                     ),
-                    trailing: IconButton(
-                      tooltip: isSaved ? 'Saved' : 'Add artist',
-                      onPressed:
-                          isSaved
-                              ? null
-                              : () async {
-                                await library.saveArtist(artist);
-                                if (!mounted) {
-                                  return;
-                                }
-                                setState(() {});
-                              },
-                      icon: Icon(
+                    trailing:
                         isSaved
-                            ? Icons.check_circle_rounded
-                            : Icons.person_add_alt_1_rounded,
-                      ),
-                    ),
+                            ? const Icon(Icons.check_circle_rounded)
+                            : const Icon(Icons.chevron_right_rounded),
                   );
                 }),
               ],
@@ -533,35 +554,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Future<void> _confirmRemoveArtist(ArtistProfile artist) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: CrabifyColors.surfaceRaised,
-          title: const Text('Remove artist from library?'),
-          content: Text(
-            'This hides ${artist.name} from the Artist section. Songs remain in your library and on the device.',
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Remove'),
-            ),
-          ],
-        );
-      },
+  Future<void> _openScanDeviceSongs() {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const DeviceScanImportScreen(),
+        fullscreenDialog: true,
+      ),
     );
-
-    if (confirmed != true || !mounted) {
-      return;
-    }
-
-    await context.read<LibraryService>().removeArtistFromLibrary(artist);
   }
 
   Future<void> _importFiles() async {
@@ -612,18 +611,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.transform_rounded),
-                  title: const Text('Convert Mp4 into Mp3'),
-                  subtitle: const Text(
-                    'Pick one MP4 file, convert it, and add it to the offline library.',
-                  ),
-                  onTap:
-                      () => Navigator.of(
-                        sheetContext,
-                      ).pop(_ImportFlowAction.convertMp4),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.flash_on_rounded),
                   title: const Text('Quick import'),
                   subtitle: const Text(
@@ -659,24 +646,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
     try {
       if (importAction == _ImportFlowAction.autoDetect) {
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(
-            builder: (_) => const DeviceScanImportScreen(),
-            fullscreenDialog: true,
-          ),
-        );
-        return;
-      }
-
-      if (importAction == _ImportFlowAction.convertMp4) {
-        final convertedTrack = await library.convertPickedMp4ToLibrary();
-        if (convertedTrack != null && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${convertedTrack.title} converted and imported'),
-            ),
-          );
-        }
+        await _openScanDeviceSongs();
         return;
       }
 
@@ -829,10 +799,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _showCreateArtistDialog() async {
     await _showArtistEditor();
-  }
-
-  Future<void> _showEditArtistDialog(ArtistProfile artist) async {
-    await _showArtistEditor(existing: artist);
   }
 
   Future<void> _showArtistEditor({ArtistProfile? existing}) async {
@@ -1062,16 +1028,12 @@ class _TrackSection extends StatelessWidget {
     required this.tracks,
     required this.emptyTitle,
     required this.emptyMessage,
-    this.actionLabel,
-    this.onAction,
   });
 
   final String title;
   final List<MusicTrack> tracks;
   final String emptyTitle;
   final String emptyMessage;
-  final String? actionLabel;
-  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -1080,19 +1042,11 @@ class _TrackSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-              ),
-            ),
-            if (actionLabel != null)
-              TextButton(onPressed: onAction, child: Text(actionLabel!)),
-          ],
+        Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 12),
         if (tracks.isEmpty)

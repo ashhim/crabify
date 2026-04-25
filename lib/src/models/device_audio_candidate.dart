@@ -5,7 +5,6 @@ class DeviceAudioCandidate {
     required this.artistName,
     this.albumTitle,
     this.durationSeconds,
-    this.isVideoSource = false,
   });
 
   final String path;
@@ -13,9 +12,6 @@ class DeviceAudioCandidate {
   final String artistName;
   final String? albumTitle;
   final int? durationSeconds;
-  final bool isVideoSource;
-
-  bool get requiresConversion => path.toLowerCase().endsWith('.mp4');
 
   factory DeviceAudioCandidate.fromJson(Map<Object?, Object?> json) {
     return DeviceAudioCandidate(
@@ -24,7 +20,6 @@ class DeviceAudioCandidate {
       artistName: json['artistName']?.toString() ?? 'Unknown artist',
       albumTitle: json['albumTitle']?.toString(),
       durationSeconds: _toInt(json['durationSeconds']),
-      isVideoSource: json['isVideoSource'] == true,
     );
   }
 

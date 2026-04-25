@@ -10,6 +10,7 @@ import '../widgets/artwork_tile.dart';
 import '../widgets/track_actions.dart';
 import '../widgets/track_tile.dart';
 import 'playlist_artist_picker_screen.dart';
+import 'select_tracks_screen.dart';
 
 class CollectionDetailScreen extends StatelessWidget {
   const CollectionDetailScreen({super.key, required this.collection});
@@ -49,24 +50,34 @@ class CollectionDetailScreen extends StatelessWidget {
                             ),
                         icon: const Icon(Icons.person_search_rounded),
                       ),
-                      IconButton(
-                        tooltip: 'Playlist image',
-                        onPressed:
-                            () => _showPlaylistCoverSettings(
+                      PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          if (value == 'cover') {
+                            await _showPlaylistCoverSettings(
                               context,
                               currentCollection,
                               tracks,
-                            ),
-                        icon: const Icon(Icons.image_rounded),
-                      ),
-                      IconButton(
-                        tooltip: 'Delete playlist',
-                        onPressed:
-                            () => _confirmDeletePlaylist(
+                            );
+                            return;
+                          }
+                          if (value == 'delete') {
+                            await _confirmDeletePlaylist(
                               context,
                               currentCollection,
-                            ),
-                        icon: const Icon(Icons.delete_outline_rounded),
+                            );
+                          }
+                        },
+                        itemBuilder:
+                            (context) => const <PopupMenuEntry<String>>[
+                              PopupMenuItem<String>(
+                                value: 'cover',
+                                child: Text('Playlist image'),
+                              ),
+                              PopupMenuItem<String>(
+                                value: 'delete',
+                                child: Text('Delete playlist'),
+                              ),
+                            ],
                       ),
                     ]
                     : null,
@@ -124,50 +135,17 @@ class CollectionDetailScreen extends StatelessWidget {
                   if (isPlaylist)
                     FilledButton.tonalIcon(
                       onPressed:
-                          () => Navigator.of(context).push<bool>(
-                            MaterialPageRoute<bool>(
-                              builder:
-                                  (_) => PlaylistArtistPickerScreen(
-                                    playlist: currentCollection,
-                                  ),
-                              fullscreenDialog: true,
-                            ),
+                          () => _openPlaylistTrackPicker(
+                            context,
+                            currentCollection,
                           ),
-                      icon: const Icon(Icons.people_alt_rounded),
-                      label: const Text('Artists'),
+                      icon: const Icon(Icons.library_add_rounded),
+                      label: const Text('Add songs'),
                     ),
                 ],
               ),
             ),
           ),
-          if (isPlaylist && currentCollection.artistIds.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children:
-                      currentCollection.artistIds.map((artistId) {
-                        final artist = library.artistById(artistId);
-                        return InputChip(
-                          label: Text(artist?.name ?? artistId),
-                          onPressed:
-                              artist == null
-                                  ? null
-                                  : () => Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder:
-                                          (_) => ArtistDetailScreen(
-                                            artist: artist,
-                                          ),
-                                    ),
-                                  ),
-                        );
-                      }).toList(),
-                ),
-              ),
-            ),
           if (tracks.isEmpty)
             const SliverToBoxAdapter(
               child: Padding(
@@ -245,6 +223,51 @@ class CollectionDetailScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _openPlaylistTrackPicker(
+    BuildContext context,
+    MusicCollection collection,
+  ) async {
+    final library = context.read<LibraryService>();
+    final existingTrackIds = collection.trackIds.toSet();
+    final availableTracks =
+        library.allTracks
+            .where((track) => !existingTrackIds.contains(track.id))
+            .toList();
+    final selectedTracks = await Navigator.of(context).push<List<MusicTrack>>(
+      MaterialPageRoute<List<MusicTrack>>(
+        builder:
+            (_) => SelectTracksScreen(
+              title: 'Add songs to ${collection.title}',
+              actionLabel: 'Add',
+              tracks: availableTracks,
+              emptyMessage: 'No additional songs are available to add.',
+            ),
+        fullscreenDialog: true,
+      ),
+    );
+    if (selectedTracks == null || selectedTracks.isEmpty || !context.mounted) {
+      return;
+    }
+    for (final track in selectedTracks) {
+      await library.addTrackToPlaylist(
+        playlistId: collection.id,
+        trackId: track.id,
+        trackSnapshot: track,
+      );
+    }
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            selectedTracks.length == 1
+                ? '1 song added to ${collection.title}'
+                : '${selectedTracks.length} songs added to ${collection.title}',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _confirmDeletePlaylist(
@@ -520,180 +543,294 @@ class ArtistDetailScreen extends StatelessWidget {
             .map(library.collectionById)
             .whereType<MusicCollection>()
             .toList();
-    final isSaved = library.savedArtistById(currentArtist.id)?.pinned ?? false;
 
     return Scaffold(
-      body: ListView(
-        padding: EdgeInsets.zero,
-        children: <Widget>[
-          _DetailHeader(
-            seed: currentArtist.id,
-            artworkPath: currentArtist.artworkPath,
-            artworkUrl: currentArtist.artworkUrl,
-            title: currentArtist.name,
-            subtitle: 'Artist',
-            description: currentArtist.description,
-            height: 360,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: <Widget>[
-                FilledButton.icon(
-                  onPressed:
-                      tracks.isEmpty
-                          ? null
-                          : () => library.playTracks(
-                            tracks,
-                            selectedTrackId: tracks.first.id,
-                          ),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Popular'),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed:
-                      tracks.isEmpty
-                          ? null
-                          : () => library.playTracks(
-                            tracks,
-                            selectedTrackId: tracks.first.id,
-                            shuffle: true,
-                          ),
-                  icon: const Icon(Icons.shuffle_rounded),
-                  label: const Text('Shuffle'),
-                ),
-                FilledButton.tonalIcon(
+      body: CustomScrollView(
+        slivers: <Widget>[
+          SliverAppBar(
+            pinned: true,
+            stretch: true,
+            expandedHeight: 340,
+            backgroundColor: CrabifyColors.topBar,
+            actions: <Widget>[
+              IconButton(
+                tooltip: 'Delete artist',
+                onPressed: () => _confirmRemoveArtist(context, currentArtist),
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) async {
+                  if (value == 'edit') {
+                    await _showArtistEditor(context, currentArtist);
+                  }
+                },
+                itemBuilder:
+                    (context) => const <PopupMenuEntry<String>>[
+                      PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Text('Edit artist'),
+                      ),
+                    ],
+              ),
+            ],
+            flexibleSpace: FlexibleSpaceBar(
+              background: _DetailHeader(
+                seed: currentArtist.id,
+                artworkPath: currentArtist.artworkPath,
+                artworkUrl: currentArtist.artworkUrl,
+                title: currentArtist.name,
+                subtitle: 'Artist',
+                description: currentArtist.description,
+                height: 340,
+                artworkAction: IconButton.filledTonal(
+                  tooltip: 'Edit artist image',
                   onPressed:
                       () => _showArtistCoverSettings(
                         context,
                         currentArtist,
                         tracks,
                       ),
-                  icon: const Icon(Icons.image_rounded),
-                  label: const Text('Image'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed:
-                      isSaved
-                          ? () => _confirmRemoveArtist(context, currentArtist)
-                          : () => library.saveArtist(currentArtist),
-                  icon: Icon(
-                    isSaved
-                        ? Icons.remove_circle_outline_rounded
-                        : Icons.person_add_alt_1_rounded,
-                  ),
-                  label: Text(isSaved ? 'Remove' : 'Save'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: () => _showArtistEditor(context, currentArtist),
                   icon: const Icon(Icons.edit_rounded),
-                  label: const Text('Edit'),
+                ),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: <Widget>[
+                  FilledButton.icon(
+                    onPressed:
+                        tracks.isEmpty
+                            ? null
+                            : () => library.playTracks(
+                              tracks,
+                              selectedTrackId: tracks.first.id,
+                            ),
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('Play'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed:
+                        () => _showArtistTrackModePicker(
+                          context,
+                          currentArtist,
+                        ),
+                    icon: const Icon(Icons.edit_note_rounded),
+                    label: const Text('Edit songs'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child:
+                  tracks.isEmpty
+                      ? const _EmptyState(
+                        title: 'No tracks yet',
+                        message:
+                            'This artist page will fill in automatically as you import or upload more songs.',
+                      )
+                      : Column(
+                        children:
+                            tracks.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final track = entry.value;
+                              return TrackTile(
+                                track: track,
+                                leadingIndex: index + 1,
+                                onTap:
+                                    () => library.playTracks(
+                                      tracks,
+                                      selectedTrackId: track.id,
+                                    ),
+                                trailing: IconButton(
+                                  onPressed:
+                                      () => showTrackActionsSheet(
+                                        context,
+                                        track: track,
+                                      ),
+                                  icon: const Icon(Icons.more_horiz_rounded),
+                                ),
+                              );
+                            }).toList(),
+                      ),
+            ),
+          ),
+          if (collections.isNotEmpty) ...<Widget>[
+            const SliverToBoxAdapter(child: SizedBox(height: 12)),
+            const SliverToBoxAdapter(child: _SectionHeader(title: 'Releases')),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 216,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  scrollDirection: Axis.horizontal,
+                  itemBuilder: (context, index) {
+                    final collection = collections[index];
+                    return SizedBox(
+                      width: 152,
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder:
+                                  (_) => CollectionDetailScreen(
+                                    collection: collection,
+                                  ),
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(18),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            ArtworkTile(
+                              seed: collection.id,
+                              artworkPath: collection.artworkPath,
+                              artworkUrl: collection.artworkUrl,
+                              size: 152,
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              collection.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              collection.subtitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: CrabifyColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                  separatorBuilder: (_, __) => const SizedBox(width: 14),
+                  itemCount: collections.length,
+                ),
+              ),
+            ),
+          ],
+          const SliverToBoxAdapter(child: SizedBox(height: 28)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showArtistTrackModePicker(
+    BuildContext context,
+    ArtistProfile artist,
+  ) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: CrabifyColors.surfaceRaised,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.playlist_add_rounded),
+                  title: const Text('Add songs'),
+                  onTap: () => Navigator.of(sheetContext).pop('add'),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.playlist_remove_rounded),
+                  title: const Text('Remove songs'),
+                  onTap: () => Navigator.of(sheetContext).pop('remove'),
                 ),
               ],
             ),
           ),
-          _SectionHeader(title: 'Popular'),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child:
-                tracks.isEmpty
-                    ? const _EmptyState(
-                      title: 'No tracks yet',
-                      message:
-                          'This artist page will fill in automatically as you import or upload more songs.',
-                    )
-                    : Column(
-                      children:
-                          tracks.take(6).toList().asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final track = entry.value;
-                            return TrackTile(
-                              track: track,
-                              leadingIndex: index + 1,
-                              onTap:
-                                  () => library.playTracks(
-                                    tracks,
-                                    selectedTrackId: track.id,
-                                  ),
-                              trailing: IconButton(
-                                onPressed:
-                                    () => showTrackActionsSheet(
-                                      context,
-                                      track: track,
-                                    ),
-                                icon: const Icon(Icons.more_horiz_rounded),
-                              ),
-                            );
-                          }).toList(),
-                    ),
-          ),
-          if (collections.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 12),
-            _SectionHeader(title: 'Releases'),
-            SizedBox(
-              height: 216,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                scrollDirection: Axis.horizontal,
-                itemBuilder: (context, index) {
-                  final collection = collections[index];
-                  return SizedBox(
-                    width: 152,
-                    child: InkWell(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder:
-                                (_) => CollectionDetailScreen(
-                                  collection: collection,
-                                ),
-                          ),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          ArtworkTile(
-                            seed: collection.id,
-                            artworkPath: collection.artworkPath,
-                            artworkUrl: collection.artworkUrl,
-                            size: 152,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            collection.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            collection.subtitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: CrabifyColors.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
-                itemCount: collections.length,
-              ),
+        );
+      },
+    );
+
+    if (action == null || !context.mounted) {
+      return;
+    }
+
+    final library = context.read<LibraryService>();
+    final isRemoveMode = action == 'remove';
+    final sourceTracks =
+        isRemoveMode
+            ? library.tracksForArtist(artist)
+            : library.allTracks
+                .where((track) => !track.hasArtistIdentity(artist.id))
+                .toList();
+
+    final selectedTracks = await Navigator.of(context).push<List<MusicTrack>>(
+      MaterialPageRoute<List<MusicTrack>>(
+        builder:
+            (_) => SelectTracksScreen(
+              title:
+                  isRemoveMode
+                      ? 'Remove songs from ${artist.name}'
+                      : 'Add songs to ${artist.name}',
+              actionLabel: isRemoveMode ? 'Remove' : 'Add',
+              tracks: sourceTracks,
+              emptyMessage:
+                  isRemoveMode
+                      ? 'No songs are currently linked to this artist.'
+                      : 'No additional songs are available to add.',
             ),
-          ],
-          const SizedBox(height: 28),
-        ],
+        fullscreenDialog: true,
       ),
     );
+
+    if (selectedTracks == null || selectedTracks.isEmpty || !context.mounted) {
+      return;
+    }
+
+    try {
+      if (isRemoveMode) {
+        await library.removeTracksFromArtist(
+          artist: artist,
+          tracks: selectedTracks,
+        );
+      } else {
+        await library.addTracksToArtist(artist: artist, tracks: selectedTracks);
+      }
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isRemoveMode
+                ? 'Updated songs for ${artist.name}'
+                : 'Added songs to ${artist.name}',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
   }
 
   Future<void> _confirmRemoveArtist(
@@ -728,6 +865,9 @@ class ArtistDetailScreen extends StatelessWidget {
     }
 
     await context.read<LibraryService>().removeArtistFromLibrary(artist);
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _showArtistEditor(
@@ -945,6 +1085,7 @@ class _DetailHeader extends StatelessWidget {
     this.artworkPath,
     this.artworkUrl,
     this.height = 320,
+    this.artworkAction,
   });
 
   final String seed;
@@ -954,6 +1095,7 @@ class _DetailHeader extends StatelessWidget {
   final String? artworkPath;
   final String? artworkUrl;
   final double height;
+  final Widget? artworkAction;
 
   @override
   Widget build(BuildContext context) {
@@ -981,12 +1123,23 @@ class _DetailHeader extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
-                  ArtworkTile(
-                    seed: seed,
-                    artworkPath: artworkPath,
-                    artworkUrl: artworkUrl,
-                    size: 142,
-                    borderRadius: BorderRadius.circular(22),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: <Widget>[
+                      ArtworkTile(
+                        seed: seed,
+                        artworkPath: artworkPath,
+                        artworkUrl: artworkUrl,
+                        size: 142,
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      if (artworkAction != null)
+                        Positioned(
+                          right: -10,
+                          bottom: -10,
+                          child: artworkAction!,
+                        ),
+                    ],
                   ),
                   const SizedBox(width: 18),
                   Expanded(

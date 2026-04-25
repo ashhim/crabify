@@ -160,9 +160,7 @@ class HomeScreen extends StatelessWidget {
                             final track =
                                 onlineTracks[index % onlineTracks.length];
                             return Padding(
-                              padding: EdgeInsets.only(
-                                right: index == 191 ? 0 : 14,
-                              ),
+                              padding: const EdgeInsets.only(right: 14),
                               child: _TrackCard(
                                 track: track,
                                 width: cardWidth,
@@ -170,11 +168,10 @@ class HomeScreen extends StatelessWidget {
                                     () => library.playTracks(
                                       onlineTracks,
                                       selectedTrackId: track.id,
-                                    ),
+                                ),
                               ),
                             );
                           },
-                          itemCount: onlineTracks.isEmpty ? 0 : 192,
                         ),
                       );
                     },

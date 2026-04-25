@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
 import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
@@ -60,6 +59,18 @@ class _PlaylistArtistPickerScreenState
               ? 'Create playlist from artists'
               : 'Edit playlist artists',
         ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: _saving ? null : () => _save(library),
+            child: Text(
+              _saving
+                  ? 'Saving...'
+                  : widget.playlist == null
+                  ? 'Create'
+                  : 'Save',
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
@@ -94,27 +105,6 @@ class _PlaylistArtistPickerScreenState
                       prefixIcon: Icon(Icons.search_rounded),
                     ),
                   ),
-                  if (_selectedArtistIds.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children:
-                          _selectedArtistIds.map((artistId) {
-                            final artist = library.artistById(artistId);
-                            return InputChip(
-                              label: Text(artist?.name ?? artistId),
-                              onDeleted:
-                                  _saving
-                                      ? null
-                                      : () => setState(
-                                        () =>
-                                            _selectedArtistIds.remove(artistId),
-                                      ),
-                            );
-                          }).toList(),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -162,24 +152,6 @@ class _PlaylistArtistPickerScreenState
                   ),
                 );
               }),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _saving ? null : () => _save(library),
-              icon:
-                  _saving
-                      ? const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                      : const Icon(Icons.queue_music_rounded),
-              label: Text(
-                _saving
-                    ? 'Saving...'
-                    : widget.playlist == null
-                    ? 'Create playlist'
-                    : 'Save artist selection',
-              ),
-            ),
           ],
         ),
       ),

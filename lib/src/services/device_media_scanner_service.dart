@@ -17,7 +17,7 @@ class DeviceMediaScannerService {
     final hasPermission = await _ensureAndroidMediaPermission();
     if (!hasPermission) {
       throw StateError(
-        'Crabify needs audio and video library access to scan device songs.',
+        'Crabify needs audio library access to scan device songs.',
       );
     }
 
@@ -29,7 +29,7 @@ class DeviceMediaScannerService {
             .where(
               (candidate) =>
                   candidate.path.trim().isNotEmpty &&
-                  !candidate.path.toLowerCase().endsWith('.mp4'),
+                  candidate.path.toLowerCase().endsWith('.mp3'),
             )
             .toList();
 
@@ -40,15 +40,13 @@ class DeviceMediaScannerService {
   Future<bool> _ensureAndroidMediaPermission() async {
     final permissions = <Permission>[
       Permission.audio,
-      Permission.videos,
       Permission.storage,
     ];
 
     final current = await permissions.request();
     final audioGranted = current[Permission.audio]?.isGranted ?? false;
     final storageGranted = current[Permission.storage]?.isGranted ?? false;
-    final videosGranted = current[Permission.videos]?.isGranted ?? false;
 
-    return audioGranted || storageGranted || videosGranted;
+    return audioGranted || storageGranted;
   }
 }

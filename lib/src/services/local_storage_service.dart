@@ -97,14 +97,6 @@ class LocalStorageService {
     );
   }
 
-  Future<String> createImportedAudioPath(
-    String id, {
-    String extension = '.mp3',
-  }) {
-    final file = File(path.join(_importDirectory.path, '$id$extension'));
-    return Future<String>.value(file.path);
-  }
-
   Future<String?> copyImportedCover(String? sourcePath, String id) async {
     if (sourcePath == null || sourcePath.trim().isEmpty) {
       return null;

@@ -8,7 +8,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceActivity() {
     private val mediaChannel = "crabify/device_media"
-    private val supportedExtensions = setOf(".mp3", ".wav", ".m4a", ".aac", ".ogg")
+    private val supportedExtensions = setOf(".mp3")
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -53,8 +53,7 @@ class MainActivity : AudioServiceActivity() {
                     "title" to cursor.getString(cursor.getColumnIndex(MediaStore.Audio.Media.TITLE)),
                     "artistName" to cursor.getString(cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST)),
                     "albumTitle" to cursor.getString(cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM)),
-                    "durationSeconds" to (cursor.getLong(cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)) / 1000L).toInt(),
-                    "isVideoSource" to false
+                    "durationSeconds" to (cursor.getLong(cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)) / 1000L).toInt()
                 )
             }
         }
