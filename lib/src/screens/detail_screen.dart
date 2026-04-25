@@ -450,29 +450,36 @@ class ArtistDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
-    final tracks = library.tracksForArtist(artist);
+    final currentArtist =
+        library.savedArtistById(artist.id) ??
+        library.artistById(artist.id) ??
+        artist;
+    final tracks = library.tracksForArtist(currentArtist);
     final collections =
-        artist.collectionIds
+        currentArtist.collectionIds
             .map(library.collectionById)
             .whereType<MusicCollection>()
             .toList();
+    final isSaved = library.savedArtistById(currentArtist.id)?.pinned ?? false;
 
     return Scaffold(
       body: ListView(
         padding: EdgeInsets.zero,
         children: <Widget>[
           _DetailHeader(
-            seed: artist.id,
-            artworkPath: artist.artworkPath,
-            artworkUrl: artist.artworkUrl,
-            title: artist.name,
+            seed: currentArtist.id,
+            artworkPath: currentArtist.artworkPath,
+            artworkUrl: currentArtist.artworkUrl,
+            title: currentArtist.name,
             subtitle: 'Artist',
-            description: artist.description,
+            description: currentArtist.description,
             height: 360,
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-            child: Row(
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
               children: <Widget>[
                 FilledButton.icon(
                   onPressed:
@@ -497,6 +504,28 @@ class ArtistDetailScreen extends StatelessWidget {
                           ),
                   icon: const Icon(Icons.shuffle_rounded),
                   label: const Text('Shuffle'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed:
+                      () => _showArtistCoverSettings(
+                        context,
+                        currentArtist,
+                        tracks,
+                      ),
+                  icon: const Icon(Icons.image_rounded),
+                  label: const Text('Image'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed:
+                      isSaved
+                          ? () => _confirmRemoveArtist(context, currentArtist)
+                          : () => library.saveArtist(currentArtist),
+                  icon: Icon(
+                    isSaved
+                        ? Icons.remove_circle_outline_rounded
+                        : Icons.person_add_alt_1_rounded,
+                  ),
+                  label: Text(isSaved ? 'Remove' : 'Save'),
                 ),
               ],
             ),
@@ -599,6 +628,178 @@ class ArtistDetailScreen extends StatelessWidget {
           const SizedBox(height: 28),
         ],
       ),
+    );
+  }
+
+  Future<void> _confirmRemoveArtist(
+    BuildContext context,
+    ArtistProfile artist,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: CrabifyColors.surfaceRaised,
+          title: const Text('Remove artist?'),
+          content: Text(
+            'This hides ${artist.name} from the Artist section. Songs stay in your library.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+
+    await context.read<LibraryService>().removeArtistFromLibrary(artist);
+  }
+
+  Future<void> _showArtistCoverSettings(
+    BuildContext context,
+    ArtistProfile artist,
+    List<MusicTrack> tracks,
+  ) {
+    final library = context.read<LibraryService>();
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CrabifyColors.surfaceRaised,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Artist image',
+                  style: Theme.of(
+                    sheetContext,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Choose how ${artist.name} gets its cover art.',
+                  style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                    color: CrabifyColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                RadioListTile<PlaylistCoverMode>(
+                  value: PlaylistCoverMode.lastPlayed,
+                  groupValue: artist.coverMode,
+                  onChanged: (_) async {
+                    Navigator.of(sheetContext).pop();
+                    await library.useLastPlayedArtistCover(artist.id);
+                  },
+                  title: const Text('Use last played song image'),
+                  subtitle: const Text('Updates after each recent play.'),
+                ),
+                RadioListTile<PlaylistCoverMode>(
+                  value: PlaylistCoverMode.fixedTrack,
+                  groupValue: artist.coverMode,
+                  onChanged:
+                      tracks.isEmpty
+                          ? null
+                          : (_) async {
+                            Navigator.of(sheetContext).pop();
+                            await _showFixedArtistCoverPicker(
+                              context,
+                              artist,
+                              tracks,
+                            );
+                          },
+                  title: const Text('Use a fixed song image'),
+                  subtitle: const Text('Lock the artist cover to one track.'),
+                ),
+                RadioListTile<PlaylistCoverMode>(
+                  value: PlaylistCoverMode.localImage,
+                  groupValue: artist.coverMode,
+                  onChanged: (_) async {
+                    Navigator.of(sheetContext).pop();
+                    await library.pickLocalArtistCover(artist.id);
+                  },
+                  title: const Text('Use a permanent local image'),
+                  subtitle: const Text('Pick an image from device storage.'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showFixedArtistCoverPicker(
+    BuildContext context,
+    ArtistProfile artist,
+    List<MusicTrack> tracks,
+  ) {
+    final library = context.read<LibraryService>();
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CrabifyColors.surfaceRaised,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(12, 16, 12, 24),
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  'Choose cover track',
+                  style: Theme.of(
+                    sheetContext,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              const SizedBox(height: 10),
+              ...tracks.map((track) {
+                return ListTile(
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await library.useFixedArtistCover(
+                      artistId: artist.id,
+                      trackId: track.id,
+                    );
+                  },
+                  leading: ArtworkTile(
+                    seed: track.cacheKey,
+                    artworkPath: track.artworkPath,
+                    artworkUrl: track.artworkUrl,
+                    size: 48,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  title: Text(track.title),
+                  subtitle: Text(track.artistName),
+                  trailing:
+                      artist.coverTrackId == track.id
+                          ? const Icon(Icons.check_rounded)
+                          : null,
+                );
+              }),
+            ],
+          ),
+        );
+      },
     );
   }
 }

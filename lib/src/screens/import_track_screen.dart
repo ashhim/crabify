@@ -55,6 +55,7 @@ class _ImportTrackScreenState extends State<ImportTrackScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final library = context.watch<LibraryService>();
     final coverStatus =
         _coverImagePath != null
             ? path.basename(_coverImagePath!)
@@ -71,6 +72,10 @@ class _ImportTrackScreenState extends State<ImportTrackScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
           children: <Widget>[
+            if (_saving && library.importProgressValue != null) ...<Widget>[
+              LinearProgressIndicator(value: library.importProgressValue),
+              const SizedBox(height: 16),
+            ],
             SurfaceCard(
               color: CrabifyColors.surfaceRaised,
               child: Row(
@@ -198,7 +203,11 @@ class _ImportTrackScreenState extends State<ImportTrackScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                       : const Icon(Icons.library_music_rounded),
-              label: Text(_saving ? 'Saving...' : 'Save to library'),
+              label: Text(
+                _saving
+                    ? (library.importStatusMessage ?? 'Saving...')
+                    : 'Save to library',
+              ),
             ),
           ],
         ),

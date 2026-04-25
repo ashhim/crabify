@@ -24,6 +24,7 @@ class MusicTrack {
     this.genre,
     this.streamUrl,
     this.localPath,
+    this.sourcePath,
     this.durationSeconds,
     this.downloadable = false,
     this.isStreamable = false,
@@ -42,6 +43,7 @@ class MusicTrack {
   final String? genre;
   final String? streamUrl;
   final String? localPath;
+  final String? sourcePath;
   final int? durationSeconds;
   final bool downloadable;
   final bool isStreamable;
@@ -101,6 +103,7 @@ class MusicTrack {
     String? genre,
     String? streamUrl,
     String? localPath,
+    String? sourcePath,
     int? durationSeconds,
     bool? downloadable,
     bool? isStreamable,
@@ -110,6 +113,7 @@ class MusicTrack {
     bool clearArtworkPath = false,
     bool clearStreamUrl = false,
     bool clearLocalPath = false,
+    bool clearSourcePath = false,
   }) {
     return MusicTrack(
       id: id ?? this.id,
@@ -124,6 +128,7 @@ class MusicTrack {
       genre: genre ?? this.genre,
       streamUrl: clearStreamUrl ? null : streamUrl ?? this.streamUrl,
       localPath: clearLocalPath ? null : localPath ?? this.localPath,
+      sourcePath: clearSourcePath ? null : sourcePath ?? this.sourcePath,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       downloadable: downloadable ?? this.downloadable,
       isStreamable: isStreamable ?? this.isStreamable,
@@ -146,6 +151,7 @@ class MusicTrack {
       'genre': genre,
       'streamUrl': streamUrl,
       'localPath': localPath,
+      'sourcePath': sourcePath,
       'durationSeconds': durationSeconds,
       'downloadable': downloadable,
       'isStreamable': isStreamable,
@@ -170,6 +176,7 @@ class MusicTrack {
       genre: json['genre'] as String?,
       streamUrl: json['streamUrl'] as String?,
       localPath: json['localPath'] as String?,
+      sourcePath: json['sourcePath'] as String?,
       durationSeconds: json['durationSeconds'] as int?,
       downloadable: json['downloadable'] as bool? ?? false,
       isStreamable:

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../theme/crabify_theme.dart';
+import 'skeletons.dart';
 
 class ArtworkTile extends StatelessWidget {
   const ArtworkTile({
@@ -26,21 +27,21 @@ class ArtworkTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = _palettes[seed.hashCode.abs() % _palettes.length];
     final imageChild = switch ((artworkPath, artworkUrl)) {
-      (String localPath, _) when localPath.isNotEmpty => Image.file(
-        File(localPath),
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+      (String localPath, _) when localPath.isNotEmpty => _ArtworkFrame(
+        image: Image.file(
+          File(localPath),
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+        ),
+        borderRadius: borderRadius,
       ),
-      (_, String remoteUrl) when remoteUrl.isNotEmpty => Image.network(
-        remoteUrl,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => const SizedBox.shrink(),
-        loadingBuilder: (context, child, loadingProgress) {
-          if (loadingProgress == null) {
-            return child;
-          }
-          return const SizedBox.shrink();
-        },
+      (_, String remoteUrl) when remoteUrl.isNotEmpty => _ArtworkFrame(
+        image: Image.network(
+          remoteUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+        ),
+        borderRadius: borderRadius,
       ),
       _ => const SizedBox.shrink(),
     };
@@ -88,6 +89,36 @@ class ArtworkTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ArtworkFrame extends StatelessWidget {
+  const _ArtworkFrame({required this.image, required this.borderRadius});
+
+  final Image image;
+  final BorderRadius borderRadius;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image(
+      image: image.image,
+      fit: BoxFit.cover,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        final loaded = wasSynchronouslyLoaded || frame != null;
+        return Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            if (!loaded)
+              SkeletonShimmer(
+                borderRadius: borderRadius,
+                child: const SizedBox.expand(),
+              ),
+            if (loaded) child,
+          ],
+        );
+      },
+      errorBuilder: image.errorBuilder,
     );
   }
 }

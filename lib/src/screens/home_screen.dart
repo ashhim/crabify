@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
 import '../models/music_track.dart';
 import '../services/library_service.dart';
@@ -27,6 +28,15 @@ class HomeScreen extends StatelessWidget {
         final playlists = library.playlists.take(6).toList();
         final onlineTracks = library.onlineTracks.take(8).toList();
         final offlineTracks = library.localTracks.take(6).toList();
+        final localArtists =
+            library.artists
+                .where(
+                  (artist) => library
+                      .tracksForArtist(artist)
+                      .any((track) => track.isLocal),
+                )
+                .take(6)
+                .toList();
 
         return Container(
           decoration: const BoxDecoration(
@@ -162,6 +172,40 @@ class HomeScreen extends StatelessWidget {
                       );
                     },
                   ),
+                  const SizedBox(height: 28),
+                  _SectionHeader(title: 'Artist'),
+                  const SizedBox(height: 14),
+                  if (localArtists.isEmpty)
+                    const SurfaceCard(
+                      child: Text(
+                        'Import or download local tracks and Crabify will build artist pages automatically.',
+                      ),
+                    )
+                  else
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cardWidth = _responsiveCardWidth(
+                          constraints.maxWidth,
+                        );
+                        final sectionHeight = cardWidth + 94;
+                        return SizedBox(
+                          height: sectionHeight,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemBuilder: (context, index) {
+                              final artist = localArtists[index];
+                              return _ArtistCard(
+                                artist: artist,
+                                width: cardWidth,
+                              );
+                            },
+                            separatorBuilder:
+                                (_, __) => const SizedBox(width: 14),
+                            itemCount: localArtists.length,
+                          ),
+                        );
+                      },
+                    ),
                   const SizedBox(height: 28),
                   _SectionHeader(
                     title: 'Offline library',
@@ -473,6 +517,64 @@ class _TrackCard extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtistCard extends StatelessWidget {
+  const _ArtistCard({required this.artist, required this.width});
+
+  final ArtistProfile artist;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final library = context.read<LibraryService>();
+    final trackCount = library.tracksForArtist(artist).length;
+
+    return SizedBox(
+      width: width,
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ArtistDetailScreen(artist: artist),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            ArtworkTile(
+              seed: artist.id,
+              artworkPath: artist.artworkPath,
+              artworkUrl: artist.artworkUrl,
+              size: width,
+              borderRadius: BorderRadius.circular(20),
+              icon: Icons.person_rounded,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              artist.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              trackCount == 1 ? '1 song' : '$trackCount songs',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: CrabifyColors.textSecondary,
               ),
             ),
           ],

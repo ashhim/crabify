@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/artist_profile.dart';
 import '../models/music_track.dart';
 import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
@@ -9,9 +11,20 @@ import '../widgets/surface_card.dart';
 import '../widgets/track_actions.dart';
 import '../widgets/track_tile.dart';
 import 'detail_screen.dart';
+import 'device_scan_import_screen.dart';
 import 'import_track_screen.dart';
 
-enum _LibraryFilter { playlists, liked, downloads, imported, uploads, recent }
+enum _LibraryFilter {
+  playlists,
+  artists,
+  liked,
+  downloads,
+  imported,
+  uploads,
+  recent,
+}
+
+enum _ImportFlowAction { quick, custom, autoDetect }
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key, required this.onOpenUpload});
@@ -23,6 +36,17 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
+  final TextEditingController _artistSearchController = TextEditingController();
+  List<ArtistProfile> _artistSearchResults = const <ArtistProfile>[];
+  bool _artistSearchInFlight = false;
+  String? _artistSearchError;
+
+  @override
+  void dispose() {
+    _artistSearchController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
@@ -55,6 +79,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ],
           ),
           const SizedBox(height: 18),
+          if (library.importOperationInProgress) ...<Widget>[
+            _ImportStatusCard(
+              message: library.importStatusMessage ?? 'Working on import...',
+              progress: library.importProgressValue,
+            ),
+            const SizedBox(height: 18),
+          ],
           Row(
             children: <Widget>[
               Expanded(
@@ -114,9 +145,40 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _SummaryCard(
+                  title: 'Artists',
+                  count: library.localArtists.length,
+                  color: const Color(0xFF1D4ED8),
+                  active: filter == _LibraryFilter.artists,
+                  onTap:
+                      () => library.setSelectedLibraryFilter(
+                        _keyForFilter(_LibraryFilter.artists),
+                      ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _SummaryCard(
+                  title: 'Recent',
+                  count: library.recentTracks.length,
+                  color: const Color(0xFF5B21B6),
+                  active: filter == _LibraryFilter.recent,
+                  onTap:
+                      () => library.setSelectedLibraryFilter(
+                        _keyForFilter(_LibraryFilter.recent),
+                      ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 18),
           Wrap(
             spacing: 10,
+            runSpacing: 10,
             children:
                 _LibraryFilter.values.map((candidate) {
                   return ChoiceChip(
@@ -188,6 +250,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 );
               }),
             ],
+          ] else if (filter == _LibraryFilter.artists) ...<Widget>[
+            _buildArtistSection(context, library),
           ] else ...<Widget>[
             if (filter == _LibraryFilter.liked)
               _TrackSection(
@@ -237,67 +301,365 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Widget _buildArtistSection(BuildContext context, LibraryService library) {
+    final artists = library.localArtists;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _ActionBanner(
+          title: 'Artist',
+          message:
+              'Crabify groups your imported, downloaded, and uploaded tracks into artist pages. Removing an artist here hides the artist card without touching any songs.',
+          actionLabel: 'Import files',
+          onAction: _importFiles,
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'Saved artists',
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 12),
+        if (artists.isEmpty)
+          const _EmptyCard(
+            title: 'No artists yet',
+            message:
+                'Import or download local tracks and Crabify will build artist pages from their metadata.',
+          )
+        else
+          ...artists.map((artist) {
+            final trackCount = library.tracksForArtist(artist).length;
+            final isSaved = library.savedArtistById(artist.id)?.pinned ?? false;
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              onTap: () => _openArtistDetails(artist),
+              leading: ArtworkTile(
+                seed: artist.id,
+                artworkPath: artist.artworkPath,
+                artworkUrl: artist.artworkUrl,
+                size: 58,
+                borderRadius: BorderRadius.circular(16),
+                icon: Icons.person_rounded,
+              ),
+              title: Text(artist.name),
+              subtitle: Text(
+                trackCount == 1
+                    ? '1 song${isSaved ? ' • saved' : ''}'
+                    : '$trackCount songs${isSaved ? ' • saved' : ''}',
+              ),
+              trailing: IconButton(
+                tooltip: 'Remove artist from library',
+                onPressed: () => _confirmRemoveArtist(artist),
+                icon: const Icon(Icons.remove_circle_outline_rounded),
+              ),
+            );
+          }),
+        const SizedBox(height: 24),
+        SurfaceCard(
+          color: CrabifyColors.surfaceRaised,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Search Crabify artists',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Search Audius-backed artist matches and pin them into this artist shelf.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: CrabifyColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: _artistSearchController,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _runArtistSearch(),
+                      decoration: const InputDecoration(
+                        hintText: 'Search artists',
+                        prefixIcon: Icon(Icons.search_rounded),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton.tonal(
+                    onPressed: _artistSearchInFlight ? null : _runArtistSearch,
+                    child:
+                        _artistSearchInFlight
+                            ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Text('Search'),
+                  ),
+                ],
+              ),
+              if (_artistSearchError != null) ...<Widget>[
+                const SizedBox(height: 12),
+                Text(
+                  _artistSearchError!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: CrabifyColors.textSecondary,
+                  ),
+                ),
+              ],
+              if (_artistSearchResults.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 16),
+                ..._artistSearchResults.map((artist) {
+                  final isSaved =
+                      library.savedArtistById(artist.id)?.pinned ?? false;
+                  final trackCount = library.tracksForArtist(artist).length;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    onTap: () => _openArtistDetails(artist),
+                    leading: ArtworkTile(
+                      seed: artist.id,
+                      artworkPath: artist.artworkPath,
+                      artworkUrl: artist.artworkUrl,
+                      size: 54,
+                      borderRadius: BorderRadius.circular(16),
+                      icon: Icons.person_rounded,
+                    ),
+                    title: Text(artist.name),
+                    subtitle: Text(
+                      trackCount == 0
+                          ? 'Artist match from Crabify'
+                          : '$trackCount related tracks',
+                    ),
+                    trailing: IconButton(
+                      tooltip: isSaved ? 'Saved' : 'Add artist',
+                      onPressed:
+                          isSaved
+                              ? null
+                              : () async {
+                                await library.saveArtist(artist);
+                                if (!mounted) {
+                                  return;
+                                }
+                                setState(() {});
+                              },
+                      icon: Icon(
+                        isSaved
+                            ? Icons.check_circle_rounded
+                            : Icons.person_add_alt_1_rounded,
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _runArtistSearch() async {
+    final query = _artistSearchController.text.trim();
+    if (query.isEmpty) {
+      setState(() {
+        _artistSearchResults = const <ArtistProfile>[];
+        _artistSearchError = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _artistSearchInFlight = true;
+      _artistSearchError = null;
+    });
+
+    try {
+      final results = await context.read<LibraryService>().searchRemoteArtists(
+        query,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _artistSearchResults = results;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _artistSearchError = error.toString();
+        _artistSearchResults = const <ArtistProfile>[];
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _artistSearchInFlight = false;
+        });
+      }
+    }
+  }
+
+  void _openArtistDetails(ArtistProfile artist) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ArtistDetailScreen(artist: artist),
+      ),
+    );
+  }
+
+  Future<void> _confirmRemoveArtist(ArtistProfile artist) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: CrabifyColors.surfaceRaised,
+          title: const Text('Remove artist from library?'),
+          content: Text(
+            'This hides ${artist.name} from the Artist section. Songs remain in your library and on the device.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    await context.read<LibraryService>().removeArtistFromLibrary(artist);
+  }
+
   Future<void> _importFiles() async {
-    final importMode = await showModalBottomSheet<_ImportMode>(
+    final library = context.read<LibraryService>();
+    final supportsAutoDetect =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    var autoDetectEnabled = library.autoDetectSongsEnabled;
+
+    final importAction = await showModalBottomSheet<_ImportFlowAction>(
       context: context,
       backgroundColor: CrabifyColors.surfaceRaised,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  'Import local audio',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Import local audio',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      autoDetectEnabled && supportsAutoDetect
+                          ? 'Auto Detect scans Android media storage for songs, lets you select multiple results, and converts MP4 sources to MP3 before saving.'
+                          : 'Quick import saves the file immediately. Custom import lets you edit title, artist, album, genre, and cover before saving.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: CrabifyColors.textSecondary,
+                      ),
+                    ),
+                    if (supportsAutoDetect) ...<Widget>[
+                      const SizedBox(height: 18),
+                      SwitchListTile.adaptive(
+                        value: autoDetectEnabled,
+                        onChanged: (value) {
+                          setModalState(() => autoDetectEnabled = value);
+                          library.setAutoDetectSongsEnabled(value);
+                        },
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Auto Detect Songs'),
+                        subtitle: const Text(
+                          'Scan device storage instead of opening the file picker.',
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    if (autoDetectEnabled && supportsAutoDetect)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.radar_rounded),
+                        title: const Text('Scan device songs'),
+                        subtitle: const Text(
+                          'List all supported audio files from Android storage.',
+                        ),
+                        onTap:
+                            () => Navigator.of(
+                              sheetContext,
+                            ).pop(_ImportFlowAction.autoDetect),
+                      )
+                    else ...<Widget>[
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.flash_on_rounded),
+                        title: const Text('Quick import'),
+                        subtitle: const Text(
+                          'Auto-copy the song, metadata, and embedded artwork now.',
+                        ),
+                        onTap:
+                            () => Navigator.of(
+                              sheetContext,
+                            ).pop(_ImportFlowAction.quick),
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.edit_note_rounded),
+                        title: const Text('Custom import'),
+                        subtitle: const Text(
+                          'Choose one file, edit metadata, then save it to the library.',
+                        ),
+                        onTap:
+                            () => Navigator.of(
+                              sheetContext,
+                            ).pop(_ImportFlowAction.custom),
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Quick import saves the file immediately. Custom import lets you edit title, artist, album, genre, and cover before saving.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: CrabifyColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.flash_on_rounded),
-                  title: const Text('Quick import'),
-                  subtitle: const Text(
-                    'Auto-copy the song, metadata, and embedded artwork now.',
-                  ),
-                  onTap: () => Navigator.of(context).pop(_ImportMode.quick),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.edit_note_rounded),
-                  title: const Text('Custom import'),
-                  subtitle: const Text(
-                    'Choose one file, edit metadata, then save it to the library.',
-                  ),
-                  onTap: () => Navigator.of(context).pop(_ImportMode.custom),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
 
-    if (importMode == null || !mounted) {
+    if (importAction == null || !mounted) {
       return;
     }
 
     try {
-      if (importMode == _ImportMode.quick) {
-        final library = context.read<LibraryService>();
+      if (importAction == _ImportFlowAction.autoDetect) {
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const DeviceScanImportScreen(),
+            fullscreenDialog: true,
+          ),
+        );
+        return;
+      }
+
+      if (importAction == _ImportFlowAction.quick) {
         final beforeCount = library.importedTracks.length;
         await library.quickImportTracks();
         if (!mounted) {
@@ -318,8 +680,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return;
       }
 
-      final draft =
-          await context.read<LibraryService>().createCustomImportDraft();
+      final draft = await library.createCustomImportDraft();
       if (draft == null || !mounted) {
         return;
       }
@@ -385,6 +746,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String _labelForFilter(_LibraryFilter filter) {
     return switch (filter) {
       _LibraryFilter.playlists => 'Playlists',
+      _LibraryFilter.artists => 'Artists',
       _LibraryFilter.liked => 'Liked Songs',
       _LibraryFilter.downloads => 'Downloads',
       _LibraryFilter.imported => 'Imported',
@@ -403,6 +765,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String _keyForFilter(_LibraryFilter filter) {
     return switch (filter) {
       _LibraryFilter.playlists => 'playlists',
+      _LibraryFilter.artists => 'artists',
       _LibraryFilter.liked => 'liked',
       _LibraryFilter.downloads => 'downloads',
       _LibraryFilter.imported => 'imported',
@@ -411,8 +774,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     };
   }
 }
-
-enum _ImportMode { quick, custom }
 
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
@@ -461,6 +822,35 @@ class _SummaryCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ImportStatusCard extends StatelessWidget {
+  const _ImportStatusCard({required this.message, this.progress});
+
+  final String message;
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      color: CrabifyColors.surfaceRaised,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            message,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          if (progress != null) ...<Widget>[
+            const SizedBox(height: 12),
+            LinearProgressIndicator(value: progress),
+          ],
+        ],
       ),
     );
   }

@@ -16,13 +16,63 @@ class SkeletonBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: CrabifyColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(radius),
-      ),
+    return SkeletonShimmer(
+      borderRadius: BorderRadius.circular(radius),
+      child: SizedBox(width: width, height: height),
+    );
+  }
+}
+
+class SkeletonShimmer extends StatefulWidget {
+  const SkeletonShimmer({
+    super.key,
+    required this.child,
+    this.borderRadius = const BorderRadius.all(Radius.circular(18)),
+  });
+
+  final Widget child;
+  final BorderRadius borderRadius;
+
+  @override
+  State<SkeletonShimmer> createState() => _SkeletonShimmerState();
+}
+
+class _SkeletonShimmerState extends State<SkeletonShimmer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final alignment = Alignment(-1.2 + (_controller.value * 2.4), 0);
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: widget.borderRadius,
+            gradient: LinearGradient(
+              begin: alignment,
+              end: Alignment(alignment.x + 1.2, 0),
+              colors: const <Color>[
+                CrabifyColors.surface,
+                CrabifyColors.surfaceRaised,
+                CrabifyColors.surface,
+              ],
+            ),
+          ),
+          child: child,
+        );
+      },
+      child: ClipRRect(borderRadius: widget.borderRadius, child: widget.child),
     );
   }
 }
