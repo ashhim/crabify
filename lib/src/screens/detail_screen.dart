@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
+import '../models/music_track.dart';
 import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
 import '../widgets/artwork_tile.dart';
@@ -17,7 +18,10 @@ class CollectionDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
-    final tracks = library.tracksForCollection(collection);
+    final currentCollection =
+        library.collectionById(collection.id) ?? collection;
+    final tracks = library.tracksForCollection(currentCollection);
+    final isPlaylist = currentCollection.type == CollectionType.playlist;
 
     return Scaffold(
       body: CustomScrollView(
@@ -27,14 +31,38 @@ class CollectionDetailScreen extends StatelessWidget {
             stretch: true,
             expandedHeight: 320,
             backgroundColor: CrabifyColors.topBar,
+            actions:
+                isPlaylist
+                    ? <Widget>[
+                      IconButton(
+                        tooltip: 'Playlist image',
+                        onPressed:
+                            () => _showPlaylistCoverSettings(
+                              context,
+                              currentCollection,
+                              tracks,
+                            ),
+                        icon: const Icon(Icons.image_rounded),
+                      ),
+                      IconButton(
+                        tooltip: 'Delete playlist',
+                        onPressed:
+                            () => _confirmDeletePlaylist(
+                              context,
+                              currentCollection,
+                            ),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                      ),
+                    ]
+                    : null,
             flexibleSpace: FlexibleSpaceBar(
               background: _DetailHeader(
-                seed: collection.id,
-                artworkPath: collection.artworkPath,
-                artworkUrl: collection.artworkUrl,
-                title: collection.title,
-                subtitle: collection.subtitle,
-                description: collection.description,
+                seed: currentCollection.id,
+                artworkPath: currentCollection.artworkPath,
+                artworkUrl: currentCollection.artworkUrl,
+                title: currentCollection.title,
+                subtitle: currentCollection.subtitle,
+                description: currentCollection.description,
               ),
             ),
           ),
@@ -47,10 +75,13 @@ class CollectionDetailScreen extends StatelessWidget {
                     onPressed:
                         tracks.isEmpty
                             ? null
-                            : () => library.playTracks(
-                              tracks,
-                              selectedTrackId: tracks.first.id,
-                            ),
+                            : () =>
+                                isPlaylist
+                                    ? library.playPlaylist(currentCollection)
+                                    : library.playTracks(
+                                      tracks,
+                                      selectedTrackId: tracks.first.id,
+                                    ),
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: const Text('Play'),
                   ),
@@ -59,11 +90,17 @@ class CollectionDetailScreen extends StatelessWidget {
                     onPressed:
                         tracks.isEmpty
                             ? null
-                            : () => library.playTracks(
-                              tracks,
-                              selectedTrackId: tracks.first.id,
-                              shuffle: true,
-                            ),
+                            : () =>
+                                isPlaylist
+                                    ? library.playPlaylist(
+                                      currentCollection,
+                                      shuffle: true,
+                                    )
+                                    : library.playTracks(
+                                      tracks,
+                                      selectedTrackId: tracks.first.id,
+                                      shuffle: true,
+                                    ),
                     icon: const Icon(Icons.shuffle_rounded),
                     label: const Text('Shuffle'),
                   ),
@@ -83,32 +120,324 @@ class CollectionDetailScreen extends StatelessWidget {
               ),
             )
           else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              sliver: SliverList.separated(
-                itemBuilder: (context, index) {
-                  final track = tracks[index];
-                  return TrackTile(
-                    track: track,
-                    leadingIndex: index + 1,
-                    onTap:
-                        () => library.playTracks(
-                          tracks,
-                          selectedTrackId: track.id,
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                child:
+                    isPlaylist
+                        ? ReorderableListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: tracks.length,
+                          onReorder:
+                              (oldIndex, newIndex) => library.movePlaylistTrack(
+                                playlistId: currentCollection.id,
+                                oldIndex: oldIndex,
+                                newIndex: newIndex,
+                              ),
+                          itemBuilder: (context, index) {
+                            final track = tracks[index];
+                            return _PlaylistTrackRow(
+                              key: ValueKey(
+                                '${currentCollection.id}-${track.cacheKey}',
+                              ),
+                              collection: currentCollection,
+                              tracks: tracks,
+                              track: track,
+                              index: index,
+                            );
+                          },
+                        )
+                        : Column(
+                          children:
+                              tracks.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final track = entry.value;
+                                return Column(
+                                  children: <Widget>[
+                                    TrackTile(
+                                      track: track,
+                                      leadingIndex: index + 1,
+                                      onTap:
+                                          () => library.playTracks(
+                                            tracks,
+                                            selectedTrackId: track.id,
+                                          ),
+                                      trailing: IconButton(
+                                        onPressed:
+                                            () => showTrackActionsSheet(
+                                              context,
+                                              track: track,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.more_horiz_rounded,
+                                        ),
+                                      ),
+                                    ),
+                                    if (index < tracks.length - 1)
+                                      const Divider(height: 0),
+                                  ],
+                                );
+                              }).toList(),
                         ),
-                    trailing: IconButton(
-                      onPressed:
-                          () => showTrackActionsSheet(context, track: track),
-                      icon: const Icon(Icons.more_horiz_rounded),
-                    ),
-                  );
-                },
-                separatorBuilder: (_, __) => const Divider(height: 0),
-                itemCount: tracks.length,
               ),
             ),
         ],
       ),
+    );
+  }
+
+  Future<void> _confirmDeletePlaylist(
+    BuildContext context,
+    MusicCollection collection,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: CrabifyColors.surfaceRaised,
+          title: const Text('Delete playlist?'),
+          content: Text(
+            'This removes ${collection.title} and its saved order. Songs stay in your library and on your device.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+
+    await context.read<LibraryService>().deletePlaylist(collection.id);
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _showPlaylistCoverSettings(
+    BuildContext context,
+    MusicCollection collection,
+    List<MusicTrack> tracks,
+  ) {
+    final library = context.read<LibraryService>();
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CrabifyColors.surfaceRaised,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Playlist image',
+                  style: Theme.of(
+                    sheetContext,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Choose how ${collection.title} gets its cover art.',
+                  style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                    color: CrabifyColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                RadioListTile<PlaylistCoverMode>(
+                  value: PlaylistCoverMode.lastPlayed,
+                  groupValue: collection.coverMode,
+                  onChanged: (_) async {
+                    Navigator.of(sheetContext).pop();
+                    await library.useLastPlayedPlaylistCover(collection.id);
+                  },
+                  title: const Text('Use last played song image'),
+                  subtitle: const Text('Updates as you play this playlist.'),
+                ),
+                RadioListTile<PlaylistCoverMode>(
+                  value: PlaylistCoverMode.fixedTrack,
+                  groupValue: collection.coverMode,
+                  onChanged:
+                      tracks.isEmpty
+                          ? null
+                          : (_) async {
+                            Navigator.of(sheetContext).pop();
+                            await _showFixedCoverTrackPicker(
+                              context,
+                              collection,
+                            );
+                          },
+                  title: const Text('Use a fixed song image'),
+                  subtitle: const Text('Lock the cover to one track artwork.'),
+                ),
+                RadioListTile<PlaylistCoverMode>(
+                  value: PlaylistCoverMode.localImage,
+                  groupValue: collection.coverMode,
+                  onChanged: (_) async {
+                    Navigator.of(sheetContext).pop();
+                    await library.pickLocalPlaylistCover(collection.id);
+                  },
+                  title: const Text('Use a permanent local image'),
+                  subtitle: const Text('Pick an image from device storage.'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showFixedCoverTrackPicker(
+    BuildContext context,
+    MusicCollection collection,
+  ) {
+    final library = context.read<LibraryService>();
+    final tracks = library.tracksForCollection(collection);
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CrabifyColors.surfaceRaised,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(12, 16, 12, 24),
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  'Choose cover track',
+                  style: Theme.of(
+                    sheetContext,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              const SizedBox(height: 10),
+              ...tracks.map((track) {
+                return ListTile(
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await library.useFixedPlaylistCover(
+                      playlistId: collection.id,
+                      trackId: track.id,
+                    );
+                  },
+                  leading: ArtworkTile(
+                    seed: track.cacheKey,
+                    artworkPath: track.artworkPath,
+                    artworkUrl: track.artworkUrl,
+                    size: 48,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  title: Text(track.title),
+                  subtitle: Text(track.artistName),
+                  trailing:
+                      collection.coverTrackId == track.id
+                          ? const Icon(Icons.check_rounded)
+                          : null,
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PlaylistTrackRow extends StatelessWidget {
+  const _PlaylistTrackRow({
+    super.key,
+    required this.collection,
+    required this.tracks,
+    required this.track,
+    required this.index,
+  });
+
+  final MusicCollection collection;
+  final List<MusicTrack> tracks;
+  final MusicTrack track;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final library = context.read<LibraryService>();
+    return Column(
+      children: <Widget>[
+        TrackTile(
+          track: track,
+          leadingIndex: index + 1,
+          onTap:
+              () => library.playPlaylist(collection, selectedTrackId: track.id),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              IconButton(
+                tooltip: 'Remove from playlist',
+                onPressed: () => _confirmRemove(context),
+                icon: const Icon(Icons.remove_circle_outline_rounded),
+              ),
+              IconButton(
+                onPressed: () => showTrackActionsSheet(context, track: track),
+                icon: const Icon(Icons.more_horiz_rounded),
+              ),
+              const Icon(Icons.drag_handle_rounded),
+            ],
+          ),
+        ),
+        if (index < tracks.length - 1) const Divider(height: 0),
+      ],
+    );
+  }
+
+  Future<void> _confirmRemove(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: CrabifyColors.surfaceRaised,
+          title: const Text('Remove from playlist?'),
+          content: Text(
+            'This removes ${track.title} from ${collection.title}. The song stays in your library.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+
+    await context.read<LibraryService>().removeTrackFromPlaylist(
+      playlistId: collection.id,
+      trackId: track.id,
     );
   }
 }

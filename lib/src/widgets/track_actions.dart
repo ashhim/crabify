@@ -12,6 +12,7 @@ Future<void> showTrackActionsSheet(
   final parentContext = context;
   final library = context.read<LibraryService>();
   final downloadInProgress = library.progressFor(track.id) != null;
+  final downloadDisabledReason = library.downloadDisabledReason(track);
   final deleteLabel = switch (track.origin) {
     TrackOrigin.downloaded => 'Delete downloaded file',
     TrackOrigin.local => 'Delete imported file',
@@ -58,7 +59,7 @@ Future<void> showTrackActionsSheet(
                         : 'Add to liked songs',
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
-                  await library.toggleLike(track.id);
+                  await library.toggleLike(track.id, trackSnapshot: track);
                 },
               ),
               _ActionTile(
@@ -77,20 +78,12 @@ Future<void> showTrackActionsSheet(
               _ActionTile(
                 icon: Icons.download_rounded,
                 title:
-                    track.hasValidLocalSource
-                        ? 'Already stored locally'
-                        : track.downloadable
-                        ? library.isDownloaded(track.id)
-                            ? 'Downloaded'
-                            : downloadInProgress
-                            ? 'Downloading...'
-                            : 'Download for offline'
-                        : 'Download unavailable',
-                enabled:
-                    !track.hasValidLocalSource &&
-                    track.downloadable &&
-                    !library.isDownloaded(track.id) &&
-                    !downloadInProgress,
+                    downloadDisabledReason == null
+                        ? 'Download for offline'
+                        : downloadInProgress
+                        ? 'Downloading...'
+                        : downloadDisabledReason,
+                enabled: downloadDisabledReason == null,
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
                   try {
@@ -116,7 +109,11 @@ Future<void> showTrackActionsSheet(
                 title: 'Add to playlist',
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
-                  await _showPlaylistPicker(parentContext, trackId: track.id);
+                  await _showPlaylistPicker(
+                    parentContext,
+                    track: track,
+                    trackId: track.id,
+                  );
                 },
               ),
               if (deleteLabel != null)
@@ -162,6 +159,7 @@ Future<void> showTrackActionsSheet(
 
 Future<void> _showPlaylistPicker(
   BuildContext context, {
+  required MusicTrack track,
   required String trackId,
 }) async {
   final library = context.read<LibraryService>();
@@ -221,6 +219,7 @@ Future<void> _showPlaylistPicker(
                     await library.addTrackToPlaylist(
                       playlistId: playlist.id,
                       trackId: trackId,
+                      trackSnapshot: track,
                     );
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(

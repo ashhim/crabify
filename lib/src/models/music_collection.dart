@@ -2,10 +2,19 @@ import 'dart:convert';
 
 enum CollectionType { playlist, album, mix }
 
+enum PlaylistCoverMode { lastPlayed, fixedTrack, localImage }
+
 CollectionType collectionTypeFromJson(String? value) {
   return CollectionType.values.firstWhere(
     (type) => type.name == value,
     orElse: () => CollectionType.playlist,
+  );
+}
+
+PlaylistCoverMode playlistCoverModeFromJson(String? value) {
+  return PlaylistCoverMode.values.firstWhere(
+    (mode) => mode.name == value,
+    orElse: () => PlaylistCoverMode.lastPlayed,
   );
 }
 
@@ -20,6 +29,9 @@ class MusicCollection {
     this.artworkUrl,
     this.artworkPath,
     this.editable = false,
+    this.coverMode = PlaylistCoverMode.lastPlayed,
+    this.coverTrackId,
+    this.coverImagePath,
   });
 
   final String id;
@@ -31,6 +43,9 @@ class MusicCollection {
   final String? artworkUrl;
   final String? artworkPath;
   final bool editable;
+  final PlaylistCoverMode coverMode;
+  final String? coverTrackId;
+  final String? coverImagePath;
 
   MusicCollection copyWith({
     String? id,
@@ -42,8 +57,13 @@ class MusicCollection {
     String? artworkUrl,
     String? artworkPath,
     bool? editable,
+    PlaylistCoverMode? coverMode,
+    String? coverTrackId,
+    String? coverImagePath,
     bool clearArtworkUrl = false,
     bool clearArtworkPath = false,
+    bool clearCoverTrackId = false,
+    bool clearCoverImagePath = false,
   }) {
     return MusicCollection(
       id: id ?? this.id,
@@ -55,6 +75,11 @@ class MusicCollection {
       artworkUrl: clearArtworkUrl ? null : artworkUrl ?? this.artworkUrl,
       artworkPath: clearArtworkPath ? null : artworkPath ?? this.artworkPath,
       editable: editable ?? this.editable,
+      coverMode: coverMode ?? this.coverMode,
+      coverTrackId:
+          clearCoverTrackId ? null : coverTrackId ?? this.coverTrackId,
+      coverImagePath:
+          clearCoverImagePath ? null : coverImagePath ?? this.coverImagePath,
     );
   }
 
@@ -69,6 +94,9 @@ class MusicCollection {
       'artworkUrl': artworkUrl,
       'artworkPath': artworkPath,
       'editable': editable,
+      'coverMode': coverMode.name,
+      'coverTrackId': coverTrackId,
+      'coverImagePath': coverImagePath,
     };
   }
 
@@ -86,6 +114,9 @@ class MusicCollection {
       artworkUrl: json['artworkUrl'] as String?,
       artworkPath: json['artworkPath'] as String?,
       editable: json['editable'] as bool? ?? false,
+      coverMode: playlistCoverModeFromJson(json['coverMode'] as String?),
+      coverTrackId: json['coverTrackId'] as String?,
+      coverImagePath: json['coverImagePath'] as String?,
     );
   }
 

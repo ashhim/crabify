@@ -9,8 +9,9 @@ import '../widgets/surface_card.dart';
 import '../widgets/track_actions.dart';
 import '../widgets/track_tile.dart';
 import 'detail_screen.dart';
+import 'import_track_screen.dart';
 
-enum _LibraryFilter { playlists, downloads, imported, uploads, recent }
+enum _LibraryFilter { playlists, liked, downloads, imported, uploads, recent }
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key, required this.onOpenUpload});
@@ -22,11 +23,10 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  _LibraryFilter _filter = _LibraryFilter.playlists;
-
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
+    final filter = _filterFromKey(library.selectedLibraryFilter);
 
     return SafeArea(
       bottom: false,
@@ -62,6 +62,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   title: 'Liked songs',
                   count: library.likedTracks.length,
                   color: const Color(0xFF312E81),
+                  active: filter == _LibraryFilter.liked,
+                  onTap:
+                      () => library.setSelectedLibraryFilter(
+                        _keyForFilter(_LibraryFilter.liked),
+                      ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -70,6 +75,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   title: 'Downloads',
                   count: library.downloadedTracks.length,
                   color: const Color(0xFF14532D),
+                  active: filter == _LibraryFilter.downloads,
+                  onTap:
+                      () => library.setSelectedLibraryFilter(
+                        _keyForFilter(_LibraryFilter.downloads),
+                      ),
                 ),
               ),
             ],
@@ -82,6 +92,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   title: 'Imported',
                   count: library.importedTracks.length,
                   color: const Color(0xFF7C2D12),
+                  active: filter == _LibraryFilter.imported,
+                  onTap:
+                      () => library.setSelectedLibraryFilter(
+                        _keyForFilter(_LibraryFilter.imported),
+                      ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -90,6 +105,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   title: 'Uploads',
                   count: library.uploadedTracks.length,
                   color: const Color(0xFF0F766E),
+                  active: filter == _LibraryFilter.uploads,
+                  onTap:
+                      () => library.setSelectedLibraryFilter(
+                        _keyForFilter(_LibraryFilter.uploads),
+                      ),
                 ),
               ),
             ],
@@ -98,16 +118,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
           Wrap(
             spacing: 10,
             children:
-                _LibraryFilter.values.map((filter) {
+                _LibraryFilter.values.map((candidate) {
                   return ChoiceChip(
-                    selected: _filter == filter,
-                    label: Text(_labelForFilter(filter)),
-                    onSelected: (_) => setState(() => _filter = filter),
+                    selected: filter == candidate,
+                    label: Text(_labelForFilter(candidate)),
+                    onSelected:
+                        (_) => library.setSelectedLibraryFilter(
+                          _keyForFilter(candidate),
+                        ),
                   );
                 }).toList(),
           ),
           const SizedBox(height: 20),
-          if (_filter == _LibraryFilter.playlists) ...<Widget>[
+          if (filter == _LibraryFilter.playlists) ...<Widget>[
             _ActionBanner(
               title: 'Make this library yours',
               message:
@@ -122,7 +145,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 message:
                     'Create your first playlist, then add online or offline tracks to it from any track menu.',
               )
-            else
+            else ...<Widget>[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: library.shuffleAllPlaylists,
+                  icon: const Icon(Icons.shuffle_rounded),
+                  label: const Text('Shuffle all playlists'),
+                ),
+              ),
+              const SizedBox(height: 8),
               ...library.playlists.map((playlist) {
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -142,13 +174,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                   title: Text(playlist.title),
+                  trailing: IconButton(
+                    onPressed:
+                        playlist.trackIds.isEmpty
+                            ? null
+                            : () =>
+                                library.playPlaylist(playlist, shuffle: true),
+                    icon: const Icon(Icons.shuffle_rounded),
+                  ),
                   subtitle: Text(
                     '${playlist.subtitle} • ${playlist.trackIds.length} tracks',
                   ),
                 );
               }),
+            ],
           ] else ...<Widget>[
-            if (_filter == _LibraryFilter.downloads)
+            if (filter == _LibraryFilter.liked)
+              _TrackSection(
+                title: 'Liked songs',
+                tracks: library.likedTracks,
+                emptyTitle: 'No liked songs yet',
+                emptyMessage:
+                    'Heart tracks from Home, Search, playlists, or the player and they will stay here.',
+              ),
+            if (filter == _LibraryFilter.downloads)
               _TrackSection(
                 title: 'Downloaded songs',
                 tracks: library.downloadedTracks,
@@ -156,7 +205,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 emptyMessage:
                     'Save tracks from the online catalog and they will appear here for offline playback.',
               ),
-            if (_filter == _LibraryFilter.imported)
+            if (filter == _LibraryFilter.imported)
               _TrackSection(
                 title: 'Imported audio',
                 tracks: library.importedTracks,
@@ -166,7 +215,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 actionLabel: 'Import',
                 onAction: _importFiles,
               ),
-            if (_filter == _LibraryFilter.uploads)
+            if (filter == _LibraryFilter.uploads)
               _TrackSection(
                 title: 'Uploaded tracks',
                 tracks: library.uploadedTracks,
@@ -174,7 +223,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 emptyMessage:
                     'Save a track locally from the upload screen, then publish it through your secure backend when one is configured.',
               ),
-            if (_filter == _LibraryFilter.recent)
+            if (filter == _LibraryFilter.recent)
               _TrackSection(
                 title: 'Recent plays',
                 tracks: library.recentTracks,
@@ -189,8 +238,106 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _importFiles() async {
+    final importMode = await showModalBottomSheet<_ImportMode>(
+      context: context,
+      backgroundColor: CrabifyColors.surfaceRaised,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Import local audio',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Quick import saves the file immediately. Custom import lets you edit title, artist, album, genre, and cover before saving.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: CrabifyColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.flash_on_rounded),
+                  title: const Text('Quick import'),
+                  subtitle: const Text(
+                    'Auto-copy the song, metadata, and embedded artwork now.',
+                  ),
+                  onTap: () => Navigator.of(context).pop(_ImportMode.quick),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.edit_note_rounded),
+                  title: const Text('Custom import'),
+                  subtitle: const Text(
+                    'Choose one file, edit metadata, then save it to the library.',
+                  ),
+                  onTap: () => Navigator.of(context).pop(_ImportMode.custom),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (importMode == null || !mounted) {
+      return;
+    }
+
     try {
-      await context.read<LibraryService>().importLocalTracks();
+      if (importMode == _ImportMode.quick) {
+        final library = context.read<LibraryService>();
+        final beforeCount = library.importedTracks.length;
+        await library.quickImportTracks();
+        if (!mounted) {
+          return;
+        }
+        final importedCount = library.importedTracks.length - beforeCount;
+        if (importedCount > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                importedCount == 1
+                    ? '1 file imported into your library'
+                    : '$importedCount files imported into your library',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final draft =
+          await context.read<LibraryService>().createCustomImportDraft();
+      if (draft == null || !mounted) {
+        return;
+      }
+
+      final MusicTrack? importedTrack = await Navigator.of(
+        context,
+      ).push<MusicTrack>(
+        MaterialPageRoute<MusicTrack>(
+          builder: (_) => ImportTrackScreen(initialDraft: draft),
+          fullscreenDialog: true,
+        ),
+      );
+
+      if (importedTrack != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${importedTrack.title} imported')),
+        );
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -238,50 +385,82 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String _labelForFilter(_LibraryFilter filter) {
     return switch (filter) {
       _LibraryFilter.playlists => 'Playlists',
+      _LibraryFilter.liked => 'Liked Songs',
       _LibraryFilter.downloads => 'Downloads',
       _LibraryFilter.imported => 'Imported',
       _LibraryFilter.uploads => 'Uploads',
       _LibraryFilter.recent => 'Recent',
     };
   }
+
+  _LibraryFilter _filterFromKey(String key) {
+    return _LibraryFilter.values.firstWhere(
+      (filter) => _keyForFilter(filter) == key,
+      orElse: () => _LibraryFilter.playlists,
+    );
+  }
+
+  String _keyForFilter(_LibraryFilter filter) {
+    return switch (filter) {
+      _LibraryFilter.playlists => 'playlists',
+      _LibraryFilter.liked => 'liked',
+      _LibraryFilter.downloads => 'downloads',
+      _LibraryFilter.imported => 'imported',
+      _LibraryFilter.uploads => 'uploads',
+      _LibraryFilter.recent => 'recent',
+    };
+  }
 }
+
+enum _ImportMode { quick, custom }
 
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
     required this.title,
     required this.count,
     required this.color,
+    required this.onTap,
+    this.active = false,
   });
 
   final String title;
   final int count;
   final Color color;
+  final VoidCallback onTap;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$count items',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.82),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(22),
+          border:
+              active ? Border.all(color: CrabifyColors.accent, width: 2) : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              title,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              '$count items',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.82),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -97,6 +97,18 @@ class LocalStorageService {
     );
   }
 
+  Future<String?> copyImportedCover(String? sourcePath, String id) async {
+    if (sourcePath == null || sourcePath.trim().isEmpty) {
+      return null;
+    }
+
+    return _copyFileInto(
+      sourcePath: sourcePath,
+      targetDirectory: _coverDirectory,
+      fileName: '$id${_safeExtension(sourcePath, fallback: '.png')}',
+    );
+  }
+
   Future<String> copyUploadedAudio(String sourcePath, String id) async {
     return _copyFileInto(
       sourcePath: sourcePath,
@@ -106,6 +118,18 @@ class LocalStorageService {
   }
 
   Future<String?> copyUploadedCover(String? sourcePath, String id) async {
+    if (sourcePath == null || sourcePath.trim().isEmpty) {
+      return null;
+    }
+
+    return _copyFileInto(
+      sourcePath: sourcePath,
+      targetDirectory: _coverDirectory,
+      fileName: '$id${_safeExtension(sourcePath, fallback: '.png')}',
+    );
+  }
+
+  Future<String?> copyPlaylistCover(String? sourcePath, String id) async {
     if (sourcePath == null || sourcePath.trim().isEmpty) {
       return null;
     }

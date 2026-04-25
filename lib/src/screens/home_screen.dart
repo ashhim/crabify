@@ -131,7 +131,7 @@ class HomeScreen extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 28),
-                  _SectionHeader(title: 'Fresh from Audius'),
+                  _SectionHeader(title: 'Fresh from Crabify'),
                   const SizedBox(height: 14),
                   LayoutBuilder(
                     builder: (context, constraints) {

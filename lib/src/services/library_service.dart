@@ -9,6 +9,7 @@ import 'package:path/path.dart' as path;
 
 import '../data/demo_catalog.dart';
 import '../models/artist_profile.dart';
+import '../models/import_draft.dart';
 import '../models/music_collection.dart';
 import '../models/music_track.dart';
 import '../models/upload_draft.dart';
@@ -31,7 +32,7 @@ class LibraryService extends ChangeNotifier {
       if (track == null) {
         return;
       }
-      unawaited(markRecentlyPlayed(track.id));
+      unawaited(markRecentlyPlayed(track.id, trackSnapshot: track));
     };
   }
 
@@ -49,9 +50,13 @@ class LibraryService extends ChangeNotifier {
   List<MusicTrack> downloadedTracks = <MusicTrack>[];
   List<MusicTrack> uploadedTracks = <MusicTrack>[];
   List<MusicCollection> playlists = <MusicCollection>[];
+  final Map<String, MusicTrack> _retainedTracks = <String, MusicTrack>{};
   final Set<String> _likedTrackIds = <String>{};
   final List<String> _recentTrackIds = <String>[];
   final Map<String, double> _downloadProgress = <String, double>{};
+  String? _activePlaylistPlaybackId;
+  String selectedSearchTag = 'crabify';
+  String selectedLibraryFilter = 'playlists';
 
   List<MusicTrack> get allTracks {
     final result = <String, MusicTrack>{};
@@ -118,6 +123,7 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> initialize() async {
     _restoreState(_localStorageService.loadState());
+    _refreshPlaylistCoverArtwork();
     final removedMissingTracks = await _pruneMissingManagedLocalTracks();
     if (removedMissingTracks) {
       await _persistState();
@@ -141,9 +147,11 @@ class LibraryService extends ChangeNotifier {
         limit: 12,
       );
       onlineTracks = freshTracks;
+      _rememberTracks(freshTracks);
       usingFallbackCatalog = false;
       onlineError = null;
       _syncStarterPlaylistsWithOnlineTracks();
+      _refreshPlaylistCoverArtwork();
       debugPrint(
         '[Audius] Library refreshed with ${onlineTracks.length} live tracks.',
       );
@@ -165,6 +173,7 @@ class LibraryService extends ChangeNotifier {
       }
       if (playlists.isEmpty) {
         playlists = DemoCatalog.starterPlaylists(onlineTracks);
+        _refreshPlaylistCoverArtwork();
       }
     }
 
@@ -185,6 +194,7 @@ class LibraryService extends ChangeNotifier {
     List<MusicTrack> remoteResults = <MusicTrack>[];
     try {
       remoteResults = await _audiusApiService.searchTracks(trimmed, limit: 12);
+      _rememberTracks(remoteResults);
     } catch (error) {
       debugPrint('[Audius] Search failed for "$trimmed": $error');
     }
@@ -224,12 +234,11 @@ class LibraryService extends ChangeNotifier {
   }
 
   MusicTrack? trackById(String id) {
-    for (final track in allTracks) {
-      if (track.id == id) {
-        return track;
-      }
-    }
-    return null;
+    final lookup = <String, MusicTrack>{
+      ..._retainedTracks,
+      for (final track in allTracks) track.id: track,
+    };
+    return lookup[id];
   }
 
   MusicCollection? collectionById(String id) {
@@ -255,23 +264,63 @@ class LibraryService extends ChangeNotifier {
       downloadedTracks.any((track) => track.id == trackId);
   bool isDownloading(String trackId) => _downloadProgress.containsKey(trackId);
   double? progressFor(String trackId) => _downloadProgress[trackId];
+  bool canDownloadTrack(MusicTrack track) =>
+      downloadDisabledReason(track) == null;
+  String? downloadDisabledReason(MusicTrack track) {
+    if (_downloadProgress.containsKey(track.id)) {
+      return 'Download already in progress.';
+    }
+    if (track.hasValidLocalSource) {
+      return 'This track is already stored locally.';
+    }
+    if (isDownloaded(track.id)) {
+      return 'This track is already downloaded.';
+    }
+    if (!track.downloadable) {
+      return 'The artist has not enabled downloading for this track.';
+    }
+    if (!track.hasValidRemoteSource) {
+      return 'This track is not available for offline download right now.';
+    }
+    return null;
+  }
 
-  Future<void> toggleLike(String trackId) async {
+  Future<void> toggleLike(String trackId, {MusicTrack? trackSnapshot}) async {
+    if (trackSnapshot != null) {
+      _rememberTrack(trackSnapshot);
+    } else {
+      final track = trackById(trackId);
+      if (track != null) {
+        _rememberTrack(track);
+      }
+    }
     if (_likedTrackIds.contains(trackId)) {
       _likedTrackIds.remove(trackId);
     } else {
       _likedTrackIds.add(trackId);
     }
+    _cleanupDanglingTrackReferences();
     await _persistState();
     notifyListeners();
   }
 
-  Future<void> markRecentlyPlayed(String trackId) async {
+  Future<void> markRecentlyPlayed(
+    String trackId, {
+    MusicTrack? trackSnapshot,
+  }) async {
+    if (trackSnapshot != null) {
+      _rememberTrack(trackSnapshot);
+    }
     _recentTrackIds.remove(trackId);
     _recentTrackIds.insert(0, trackId);
     if (_recentTrackIds.length > 20) {
       _recentTrackIds.removeRange(20, _recentTrackIds.length);
     }
+    final track = trackSnapshot ?? trackById(trackId);
+    if (track != null) {
+      _updateLastPlayedPlaylistCovers(track);
+    }
+    _cleanupDanglingTrackReferences();
     await _persistState();
     notifyListeners();
   }
@@ -280,7 +329,9 @@ class LibraryService extends ChangeNotifier {
     List<MusicTrack> tracks, {
     required String selectedTrackId,
     bool shuffle = false,
+    String? playlistContextId,
   }) async {
+    _activePlaylistPlaybackId = playlistContextId;
     final playableTracks = await _resolvePlayableTracks(tracks);
     if (playableTracks.isEmpty) {
       final message = 'No playable tracks are available right now.';
@@ -306,21 +357,88 @@ class LibraryService extends ChangeNotifier {
     }
 
     try {
+      _rememberTracks(playableTracks);
       await _audioPlayerService.setQueue(
         playableTracks,
         initialTrackId: selectedTrack.id,
+        shuffle: shuffle,
       );
       if (_audioPlayerService.currentTrack?.cacheKey !=
           selectedTrack.cacheKey) {
         return;
       }
-      if (shuffle && !_audioPlayerService.shuffleEnabled) {
-        await _audioPlayerService.toggleShuffle();
-      }
-      await markRecentlyPlayed(selectedTrack.id);
+      await markRecentlyPlayed(selectedTrack.id, trackSnapshot: selectedTrack);
     } catch (error) {
       debugPrint('[Audio] Failed to play track queue: $error');
     }
+  }
+
+  Future<void> playPlaylist(
+    MusicCollection playlist, {
+    String? selectedTrackId,
+    bool shuffle = false,
+  }) async {
+    final tracks = tracksForCollection(playlist);
+    if (tracks.isEmpty) {
+      _audioPlayerService.reportError('${playlist.title} has no tracks yet.');
+      return;
+    }
+
+    final startTrackId =
+        selectedTrackId ??
+        (shuffle
+            ? tracks[Random().nextInt(tracks.length)].id
+            : tracks.first.id);
+    await playTracks(
+      tracks,
+      selectedTrackId: startTrackId,
+      shuffle: shuffle,
+      playlistContextId: playlist.id,
+    );
+  }
+
+  Future<void> shuffleAllPlaylists() async {
+    final orderedTracks = <MusicTrack>[];
+    final seenKeys = <String>{};
+    for (final playlist in playlists) {
+      for (final track in tracksForCollection(playlist)) {
+        if (seenKeys.add(track.cacheKey)) {
+          orderedTracks.add(track);
+        }
+      }
+    }
+
+    if (orderedTracks.isEmpty) {
+      _audioPlayerService.reportError(
+        'There are no playlist tracks to shuffle.',
+      );
+      return;
+    }
+
+    orderedTracks.shuffle(Random());
+    await playTracks(
+      orderedTracks,
+      selectedTrackId: orderedTracks.first.id,
+      shuffle: true,
+    );
+  }
+
+  Future<void> setSelectedSearchTag(String tag) async {
+    if (selectedSearchTag == tag) {
+      return;
+    }
+    selectedSearchTag = tag;
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> setSelectedLibraryFilter(String filter) async {
+    if (selectedLibraryFilter == filter) {
+      return;
+    }
+    selectedLibraryFilter = filter;
+    await _persistState();
+    notifyListeners();
   }
 
   Future<void> addToQueue(MusicTrack track) async {
@@ -331,6 +449,7 @@ class LibraryService extends ChangeNotifier {
       return;
     }
 
+    _rememberTrack(track);
     await _audioPlayerService.addToQueue(track);
   }
 
@@ -346,7 +465,11 @@ class LibraryService extends ChangeNotifier {
     return _audioPlayerService.playFromQueue(index);
   }
 
-  Future<void> importLocalTracks() async {
+  Future<void> importLocalTracks() {
+    return quickImportTracks();
+  }
+
+  Future<void> quickImportTracks() async {
     final result = await FilePicker.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
@@ -368,7 +491,8 @@ class LibraryService extends ChangeNotifier {
       if (file.path == null || file.path!.trim().isEmpty) {
         continue;
       }
-      final importedTrack = await _importTrackFromFile(file.path!);
+      final draft = await _buildImportDraftFromFile(file.path!);
+      final importedTrack = await _saveImportedDraft(draft);
       importedTracks = _upsertTrack(importedTracks, importedTrack);
     }
 
@@ -376,35 +500,50 @@ class LibraryService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<ImportDraft?> createCustomImportDraft() async {
+    final result = await FilePicker.pickFiles(
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: const <String>[
+        'mp3',
+        'm4a',
+        'wav',
+        'flac',
+        'ogg',
+        'opus',
+      ],
+    );
+
+    final sourcePath = result?.files.single.path;
+    if (sourcePath == null || sourcePath.trim().isEmpty) {
+      return null;
+    }
+
+    return _buildImportDraftFromFile(sourcePath);
+  }
+
+  Future<MusicTrack> saveCustomImport(ImportDraft draft) async {
+    final importedTrack = await _saveImportedDraft(draft);
+    importedTracks = _upsertTrack(importedTracks, importedTrack);
+    await _persistState();
+    notifyListeners();
+    return importedTrack;
+  }
+
   Future<void> downloadTrack(MusicTrack track) async {
-    if (_downloadProgress.containsKey(track.id) || !track.isPlayable) {
+    final disabledReason = downloadDisabledReason(track);
+    if (disabledReason != null) {
+      throw StateError(disabledReason);
+    }
+
+    if (!track.isPlayable) {
       return;
-    }
-
-    if (isDownloaded(track.id)) {
-      return;
-    }
-
-    if (track.hasValidLocalSource) {
-      throw StateError('This track is already stored locally on the device.');
-    }
-
-    if (!track.downloadable) {
-      throw StateError(
-        'Only tracks explicitly marked as downloadable can be saved offline.',
-      );
-    }
-
-    if (!track.isLocal && !track.hasValidRemoteSource) {
-      throw StateError(
-        'Crabify could not validate the remote stream for this track.',
-      );
     }
 
     final sourceUrl =
         track.isLocal
             ? track.localPath!
-            : _audiusApiService.resolveStreamUrl(track);
+            : await _audiusApiService.resolveFreshPlaybackUrl(track);
     _downloadProgress[track.id] = 0;
     notifyListeners();
 
@@ -419,6 +558,7 @@ class LibraryService extends ChangeNotifier {
       );
 
       downloadedTracks = _upsertTrack(downloadedTracks, downloadedTrack);
+      _rememberTrack(downloadedTrack);
       _downloadProgress.remove(track.id);
       await _persistState();
       notifyListeners();
@@ -442,6 +582,16 @@ class LibraryService extends ChangeNotifier {
       );
     }
 
+    final fallbackRemoteTrack =
+        track.origin == TrackOrigin.downloaded && track.hasValidRemoteSource
+            ? track.copyWith(
+              origin: TrackOrigin.online,
+              clearLocalPath: true,
+              clearArtworkPath:
+                  track.artworkUrl != null && track.artworkUrl!.isNotEmpty,
+            )
+            : null;
+
     await _removeTrackFromQueue(track);
 
     await _localStorageService.deleteManagedFile(track.localPath);
@@ -459,6 +609,11 @@ class LibraryService extends ChangeNotifier {
         uploadedTracks
             .where((candidate) => candidate.cacheKey != track.cacheKey)
             .toList();
+    if (fallbackRemoteTrack != null) {
+      _rememberTrack(fallbackRemoteTrack);
+    } else {
+      _retainedTracks.remove(track.id);
+    }
 
     _cleanupDanglingTrackReferences();
     await _persistState();
@@ -515,6 +670,7 @@ class LibraryService extends ChangeNotifier {
     );
 
     uploadedTracks = <MusicTrack>[uploadedTrack, ...uploadedTracks];
+    _rememberTrack(uploadedTrack);
     await _persistState();
     if (submissionResult.submittedRemotely) {
       unawaited(refreshOnlineLibrary(silent: true));
@@ -537,8 +693,32 @@ class LibraryService extends ChangeNotifier {
       type: CollectionType.playlist,
       trackIds: const <String>[],
       editable: true,
+      coverMode: PlaylistCoverMode.lastPlayed,
     );
     playlists = <MusicCollection>[newPlaylist, ...playlists];
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> deletePlaylist(String playlistId) async {
+    MusicCollection? playlist;
+    for (final item in playlists) {
+      if (item.id == playlistId) {
+        playlist = item;
+        break;
+      }
+    }
+    if (playlist == null) {
+      return;
+    }
+
+    await _localStorageService.deleteManagedFile(playlist.coverImagePath);
+    playlists =
+        playlists.where((candidate) => candidate.id != playlistId).toList();
+    if (_activePlaylistPlaybackId == playlistId) {
+      _activePlaylistPlaybackId = null;
+    }
+    _cleanupDanglingTrackReferences();
     await _persistState();
     notifyListeners();
   }
@@ -546,7 +726,11 @@ class LibraryService extends ChangeNotifier {
   Future<void> addTrackToPlaylist({
     required String playlistId,
     required String trackId,
+    MusicTrack? trackSnapshot,
   }) async {
+    if (trackSnapshot != null) {
+      _rememberTrack(trackSnapshot);
+    }
     playlists =
         playlists.map((playlist) {
           if (playlist.id != playlistId) {
@@ -572,8 +756,141 @@ class LibraryService extends ChangeNotifier {
           if (playlist.id != playlistId) {
             return playlist;
           }
+          final nextTrackIds =
+              playlist.trackIds.where((id) => id != trackId).toList();
+          final coverTrackRemoved = playlist.coverTrackId == trackId;
+          final nextPlaylist = playlist.copyWith(
+            trackIds: nextTrackIds,
+            coverTrackId:
+                coverTrackRemoved
+                    ? (nextTrackIds.isEmpty ? null : nextTrackIds.first)
+                    : playlist.coverTrackId,
+            clearCoverTrackId: coverTrackRemoved && nextTrackIds.isEmpty,
+          );
+          return _withResolvedPlaylistCover(nextPlaylist);
+        }).toList();
+    _cleanupDanglingTrackReferences();
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> movePlaylistTrack({
+    required String playlistId,
+    required int oldIndex,
+    required int newIndex,
+  }) async {
+    playlists =
+        playlists.map((playlist) {
+          if (playlist.id != playlistId) {
+            return playlist;
+          }
+          if (oldIndex < 0 ||
+              oldIndex >= playlist.trackIds.length ||
+              newIndex < 0 ||
+              newIndex > playlist.trackIds.length) {
+            return playlist;
+          }
+          final adjustedIndex = oldIndex < newIndex ? newIndex - 1 : newIndex;
+          if (adjustedIndex == oldIndex) {
+            return playlist;
+          }
+          final nextIds = List<String>.from(playlist.trackIds);
+          final trackId = nextIds.removeAt(oldIndex);
+          nextIds.insert(adjustedIndex, trackId);
+          return playlist.copyWith(trackIds: nextIds);
+        }).toList();
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> useLastPlayedPlaylistCover(String playlistId) async {
+    final current = playlists.where((playlist) => playlist.id == playlistId);
+    if (current.isNotEmpty) {
+      await _localStorageService.deleteManagedFile(
+        current.first.coverImagePath,
+      );
+    }
+    playlists =
+        playlists.map((playlist) {
+          if (playlist.id != playlistId) {
+            return playlist;
+          }
+          final coverTrackId =
+              playlist.coverTrackId != null &&
+                      playlist.trackIds.contains(playlist.coverTrackId)
+                  ? playlist.coverTrackId
+                  : (playlist.trackIds.isEmpty
+                      ? null
+                      : playlist.trackIds.first);
+          return _withResolvedPlaylistCover(
+            playlist.copyWith(
+              coverMode: PlaylistCoverMode.lastPlayed,
+              coverTrackId: coverTrackId,
+              clearCoverTrackId: coverTrackId == null,
+              clearCoverImagePath: true,
+            ),
+          );
+        }).toList();
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> useFixedPlaylistCover({
+    required String playlistId,
+    required String trackId,
+  }) async {
+    final current = playlists.where((playlist) => playlist.id == playlistId);
+    if (current.isNotEmpty) {
+      await _localStorageService.deleteManagedFile(
+        current.first.coverImagePath,
+      );
+    }
+    playlists =
+        playlists.map((playlist) {
+          if (playlist.id != playlistId ||
+              !playlist.trackIds.contains(trackId)) {
+            return playlist;
+          }
+          return _withResolvedPlaylistCover(
+            playlist.copyWith(
+              coverMode: PlaylistCoverMode.fixedTrack,
+              coverTrackId: trackId,
+              clearCoverImagePath: true,
+            ),
+          );
+        }).toList();
+    await _persistState();
+    notifyListeners();
+  }
+
+  Future<void> pickLocalPlaylistCover(String playlistId) async {
+    final result = await FilePicker.pickFiles(
+      allowMultiple: false,
+      type: FileType.image,
+    );
+    final sourcePath = result?.files.single.path;
+    if (sourcePath == null || sourcePath.trim().isEmpty) {
+      return;
+    }
+
+    final copiedPath = await _localStorageService.copyPlaylistCover(
+      sourcePath,
+      '$playlistId-cover',
+    );
+    if (copiedPath == null) {
+      return;
+    }
+
+    playlists =
+        playlists.map((playlist) {
+          if (playlist.id != playlistId) {
+            return playlist;
+          }
           return playlist.copyWith(
-            trackIds: playlist.trackIds.where((id) => id != trackId).toList(),
+            coverMode: PlaylistCoverMode.localImage,
+            coverImagePath: copiedPath,
+            artworkPath: copiedPath,
+            clearArtworkUrl: true,
           );
         }).toList();
     await _persistState();
@@ -584,34 +901,89 @@ class LibraryService extends ChangeNotifier {
     return _resolveTracks(collection.trackIds);
   }
 
+  MusicCollection playlistWithResolvedCover(MusicCollection playlist) {
+    return _withResolvedPlaylistCover(playlist);
+  }
+
   List<MusicTrack> tracksForArtist(ArtistProfile artist) {
     return allTracks.where((track) => track.artistId == artist.id).toList();
   }
 
   bool get uploadUsesStub => !_audiusApiService.hasUploadProxy;
 
-  Future<MusicTrack> _importTrackFromFile(String sourcePath) async {
-    final importedId = _newId('local');
-    final copiedPath = await _localStorageService.copyImportedAudio(
-      sourcePath,
-      importedId,
-    );
+  void _updateLastPlayedPlaylistCovers(MusicTrack track) {
+    final activePlaylistId = _activePlaylistPlaybackId;
+    if (activePlaylistId == null) {
+      return;
+    }
 
+    var changed = false;
+    playlists =
+        playlists.map((playlist) {
+          if (playlist.id != activePlaylistId ||
+              playlist.coverMode != PlaylistCoverMode.lastPlayed ||
+              !playlist.trackIds.contains(track.id)) {
+            return playlist;
+          }
+          changed = true;
+          return _withResolvedPlaylistCover(
+            playlist.copyWith(coverTrackId: track.id),
+          );
+        }).toList();
+
+    if (changed) {
+      debugPrint('[Library] Playlist cover updated from last played track.');
+    }
+  }
+
+  MusicCollection _withResolvedPlaylistCover(MusicCollection playlist) {
+    if (playlist.coverMode == PlaylistCoverMode.localImage) {
+      final coverPath = playlist.coverImagePath;
+      if (coverPath != null &&
+          coverPath.trim().isNotEmpty &&
+          File(coverPath).existsSync()) {
+        return playlist.copyWith(artworkPath: coverPath, clearArtworkUrl: true);
+      }
+    }
+
+    final coverTrackId =
+        playlist.coverTrackId != null &&
+                playlist.trackIds.contains(playlist.coverTrackId)
+            ? playlist.coverTrackId
+            : (playlist.trackIds.isEmpty ? null : playlist.trackIds.first);
+    final coverTrack = coverTrackId == null ? null : trackById(coverTrackId);
+
+    if (coverTrack == null) {
+      return playlist.copyWith(
+        clearArtworkPath: true,
+        clearArtworkUrl: true,
+        clearCoverTrackId: playlist.coverMode != PlaylistCoverMode.localImage,
+      );
+    }
+
+    return playlist.copyWith(
+      coverTrackId: coverTrack.id,
+      artworkPath: coverTrack.artworkPath,
+      artworkUrl: coverTrack.artworkUrl,
+      clearArtworkPath: coverTrack.artworkPath == null,
+      clearArtworkUrl: coverTrack.artworkUrl == null,
+    );
+  }
+
+  void _refreshPlaylistCoverArtwork() {
+    playlists = playlists.map(_withResolvedPlaylistCover).toList();
+  }
+
+  Future<ImportDraft> _buildImportDraftFromFile(String sourcePath) async {
     AudioMetadata? metadata;
     try {
-      metadata = readMetadata(File(copiedPath), getImage: true);
+      metadata = readMetadata(File(sourcePath), getImage: true);
     } catch (_) {
       metadata = null;
     }
 
     final picture =
         metadata?.pictures.isNotEmpty == true ? metadata!.pictures.first : null;
-    final coverPath = await _localStorageService.persistArtworkBytes(
-      picture?.bytes,
-      '$importedId-cover',
-      mimeType: picture?.mimetype ?? 'image/jpeg',
-    );
-
     final albumTitle =
         metadata?.album?.trim().isNotEmpty == true
             ? metadata!.album!.trim()
@@ -621,25 +993,68 @@ class LibraryService extends ChangeNotifier {
             ? metadata!.artist!.trim()
             : 'Local audio';
 
-    return MusicTrack(
-      id: importedId,
+    return ImportDraft(
+      sourceAudioPath: sourcePath,
       title:
           metadata?.title?.trim().isNotEmpty == true
               ? metadata!.title!.trim()
               : path.basenameWithoutExtension(sourcePath),
       artistName: artistName,
-      artistId: _slug(artistName),
       albumTitle: albumTitle,
-      albumId: _slug(albumTitle),
-      artworkPath: coverPath,
       genre:
           metadata?.genres.isNotEmpty == true ? metadata!.genres.first : null,
-      localPath: copiedPath,
       durationSeconds: metadata?.duration?.inSeconds,
+      embeddedArtworkBytes: picture?.bytes,
+      embeddedArtworkMimeType: picture?.mimetype,
+    );
+  }
+
+  Future<MusicTrack> _saveImportedDraft(ImportDraft draft) async {
+    final importedId = _newId('local');
+    final copiedPath = await _localStorageService.copyImportedAudio(
+      draft.sourceAudioPath,
+      importedId,
+    );
+
+    final coverPath =
+        draft.hasManualCover
+            ? await _localStorageService.copyImportedCover(
+              draft.coverImagePath,
+              '$importedId-cover',
+            )
+            : await _localStorageService.persistArtworkBytes(
+              draft.embeddedArtworkBytes,
+              '$importedId-cover',
+              mimeType: draft.embeddedArtworkMimeType ?? 'image/jpeg',
+            );
+
+    final importedTrack = MusicTrack(
+      id: importedId,
+      title: draft.title.trim().isEmpty ? 'Imported track' : draft.title.trim(),
+      artistName:
+          draft.artistName.trim().isEmpty
+              ? 'Local audio'
+              : draft.artistName.trim(),
+      artistId: _slug(
+        draft.artistName.trim().isEmpty ? 'Local audio' : draft.artistName,
+      ),
+      albumTitle:
+          draft.albumTitle.trim().isEmpty
+              ? 'Imported Tracks'
+              : draft.albumTitle.trim(),
+      albumId: _slug(
+        draft.albumTitle.trim().isEmpty ? 'Imported Tracks' : draft.albumTitle,
+      ),
+      artworkPath: coverPath,
+      genre: draft.genre?.trim().isEmpty == true ? null : draft.genre?.trim(),
+      localPath: copiedPath,
+      durationSeconds: draft.durationSeconds,
       downloadable: false,
       origin: TrackOrigin.local,
       description: 'Imported from your device storage for offline playback.',
     );
+    _rememberTrack(importedTrack);
+    return importedTrack;
   }
 
   Future<List<MusicTrack>> _resolvePlayableTracks(
@@ -735,7 +1150,10 @@ class LibraryService extends ChangeNotifier {
   }
 
   void _cleanupDanglingTrackReferences() {
-    final availableTrackIds = allTracks.map((track) => track.id).toSet();
+    final availableTrackIds = <String>{
+      ...allTracks.map((track) => track.id),
+      ..._retainedTracks.keys,
+    };
 
     _likedTrackIds.removeWhere(
       (trackId) => !availableTrackIds.contains(trackId),
@@ -744,16 +1162,37 @@ class LibraryService extends ChangeNotifier {
       (trackId) => !availableTrackIds.contains(trackId),
     );
     playlists =
-        playlists
-            .map(
-              (playlist) => playlist.copyWith(
-                trackIds:
-                    playlist.trackIds
-                        .where((trackId) => availableTrackIds.contains(trackId))
-                        .toList(),
-              ),
-            )
-            .toList();
+        playlists.map((playlist) {
+          final trackIds =
+              playlist.trackIds
+                  .where((trackId) => availableTrackIds.contains(trackId))
+                  .toList();
+          final coverTrackId =
+              playlist.coverTrackId != null &&
+                      trackIds.contains(playlist.coverTrackId)
+                  ? playlist.coverTrackId
+                  : (trackIds.isEmpty ? null : trackIds.first);
+          return _withResolvedPlaylistCover(
+            playlist.copyWith(
+              trackIds: trackIds,
+              coverTrackId: coverTrackId,
+              clearCoverTrackId: coverTrackId == null,
+            ),
+          );
+        }).toList();
+
+    final liveTrackIds = allTracks.map((track) => track.id).toSet();
+    _retainedTracks.removeWhere((trackId, track) {
+      if (liveTrackIds.contains(trackId)) {
+        return false;
+      }
+      if (track.hasValidLocalSource) {
+        return true;
+      }
+      return !_likedTrackIds.contains(trackId) &&
+          !_recentTrackIds.contains(trackId) &&
+          !playlists.any((playlist) => playlist.trackIds.contains(trackId));
+    });
   }
 
   Future<void> _removeTrackFromQueue(MusicTrack track) async {
@@ -772,9 +1211,23 @@ class LibraryService extends ChangeNotifier {
 
   List<MusicTrack> _resolveTracks(List<String> ids) {
     final lookup = <String, MusicTrack>{
+      ..._retainedTracks,
       for (final track in allTracks) track.id: track,
     };
     return ids.map((id) => lookup[id]).whereType<MusicTrack>().toList();
+  }
+
+  void _rememberTracks(Iterable<MusicTrack> tracks) {
+    for (final track in tracks) {
+      _rememberTrack(track);
+    }
+  }
+
+  void _rememberTrack(MusicTrack track) {
+    if (!track.hasValidId) {
+      return;
+    }
+    _retainedTracks[track.id] = track;
   }
 
   List<MusicTrack> _upsertTrack(List<MusicTrack> tracks, MusicTrack candidate) {
@@ -877,6 +1330,24 @@ class LibraryService extends ChangeNotifier {
         (state['recentTrackIds'] as List<dynamic>? ?? const <dynamic>[])
             .whereType<String>(),
       );
+
+    _retainedTracks
+      ..clear()
+      ..addAll(
+        ((state['retainedTracks'] as Map<String, dynamic>?) ??
+                const <String, dynamic>{})
+            .map(
+              (key, value) => MapEntry(
+                key,
+                MusicTrack.fromJson(value as Map<String, dynamic>),
+              ),
+            ),
+      );
+
+    selectedSearchTag =
+        state['selectedSearchTag'] as String? ?? selectedSearchTag;
+    selectedLibraryFilter =
+        state['selectedLibraryFilter'] as String? ?? selectedLibraryFilter;
   }
 
   Future<void> _persistState() {
@@ -889,6 +1360,11 @@ class LibraryService extends ChangeNotifier {
       'playlists': playlists.map((playlist) => playlist.toJson()).toList(),
       'likedTrackIds': _likedTrackIds.toList(),
       'recentTrackIds': _recentTrackIds,
+      'retainedTracks': _retainedTracks.map(
+        (key, track) => MapEntry(key, track.toJson()),
+      ),
+      'selectedSearchTag': selectedSearchTag,
+      'selectedLibraryFilter': selectedLibraryFilter,
     });
   }
 

@@ -35,7 +35,8 @@ class NowPlayingScreen extends StatelessWidget {
         final currentValue = audio.position.inMilliseconds.clamp(0, total);
         final progress = library.progressFor(track.id);
         final busyForCurrentTrack =
-            audio.isBusy && audio.activeTrackId == track.id;
+            audio.isLoading && audio.loadingTrackId == track.id;
+        final downloadDisabledReason = library.downloadDisabledReason(track);
 
         return Scaffold(
           backgroundColor: CrabifyColors.background,
@@ -99,7 +100,11 @@ class NowPlayingScreen extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      onPressed: () => library.toggleLike(track.id),
+                      onPressed:
+                          () => library.toggleLike(
+                            track.id,
+                            trackSnapshot: track,
+                          ),
                       icon: Icon(
                         library.isLiked(track.id)
                             ? Icons.favorite_rounded
@@ -111,11 +116,9 @@ class NowPlayingScreen extends StatelessWidget {
                       ),
                     ),
                     IconButton(
+                      tooltip: downloadDisabledReason,
                       onPressed:
-                          track.downloadable &&
-                                  !track.hasValidLocalSource &&
-                                  !library.isDownloaded(track.id) &&
-                                  progress == null
+                          downloadDisabledReason == null
                               ? () async {
                                 try {
                                   await library.downloadTrack(track);
@@ -255,6 +258,11 @@ class NowPlayingScreen extends StatelessWidget {
                                     : Icons.play_arrow_rounded,
                                 size: 40,
                               ),
+                    ),
+                    IconButton(
+                      onPressed: busyForCurrentTrack ? null : audio.stop,
+                      iconSize: 30,
+                      icon: const Icon(Icons.stop_rounded),
                     ),
                     IconButton(
                       onPressed: busyForCurrentTrack ? null : audio.next,

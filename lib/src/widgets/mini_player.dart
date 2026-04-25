@@ -23,8 +23,8 @@ class MiniPlayer extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final busyForCurrentTrack =
-        audioPlayerService.isBusy &&
-        audioPlayerService.activeTrackId == track.id;
+        audioPlayerService.isLoading &&
+        audioPlayerService.loadingTrackId == track.id;
     final subtitle =
         audioPlayerService.lastErrorMessage ??
         (busyForCurrentTrack ? 'Connecting to audio...' : null);
@@ -76,7 +76,9 @@ class MiniPlayer extends StatelessWidget {
                   ),
                   IconButton(
                     onPressed:
-                        busyForCurrentTrack ? null : audioPlayerService.previous,
+                        busyForCurrentTrack
+                            ? null
+                            : audioPlayerService.previous,
                     icon: const Icon(Icons.skip_previous_rounded),
                   ),
                   if (busyForCurrentTrack)
@@ -101,6 +103,13 @@ class MiniPlayer extends StatelessWidget {
                     onPressed:
                         busyForCurrentTrack ? null : audioPlayerService.next,
                     icon: const Icon(Icons.skip_next_rounded),
+                  ),
+                  IconButton(
+                    onPressed:
+                        busyForCurrentTrack || !audioPlayerService.canStop
+                            ? null
+                            : audioPlayerService.stop,
+                    icon: const Icon(Icons.stop_rounded),
                   ),
                 ],
               ),
@@ -142,10 +151,11 @@ class _TrackText extends StatelessWidget {
           statusMessage ?? track.artistName,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(
-            color: statusMessage == null ? CrabifyColors.textSecondary : statusColor,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color:
+                statusMessage == null
+                    ? CrabifyColors.textSecondary
+                    : statusColor,
           ),
         ),
       ],
