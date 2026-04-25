@@ -70,18 +70,21 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                 ),
               ),
-              IconButton.filledTonal(
-                onPressed: () => _searchController.clear(),
-                icon: const Icon(Icons.close_rounded),
-              ),
             ],
           ),
           const SizedBox(height: 18),
           TextField(
             controller: _searchController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: 'What do you want to play?',
-              prefixIcon: Icon(Icons.search_rounded),
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon:
+                  query.isEmpty
+                      ? null
+                      : IconButton(
+                        onPressed: () => _searchController.clear(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
             ),
           ),
           const SizedBox(height: 24),

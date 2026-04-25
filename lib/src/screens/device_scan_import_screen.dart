@@ -243,20 +243,38 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
   }
 
   Future<void> _importSelected() async {
+    final library = context.read<LibraryService>();
     final selectedCandidates =
         _candidates
             .where((candidate) => _selectedPaths.contains(candidate.path))
             .toList();
-    final importedCount = await context
-        .read<LibraryService>()
-        .importDetectedSongs(selectedCandidates);
+    final alreadyImportedCount =
+        selectedCandidates
+            .where((candidate) => library.isImportedSourcePath(candidate.path))
+            .length;
+    int importedCount;
+    try {
+      importedCount = await library.importDetectedSongs(selectedCandidates);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      return;
+    }
     if (!mounted) {
       return;
     }
     if (importedCount == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No new songs were imported from the selected items.'),
+        SnackBar(
+          content: Text(
+            alreadyImportedCount == selectedCandidates.length
+                ? 'All selected songs are already in your offline library.'
+                : 'No new songs were imported from the selected items.',
+          ),
         ),
       );
       return;
@@ -264,9 +282,15 @@ class _DeviceScanImportScreenState extends State<DeviceScanImportScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          importedCount == 1
-              ? '1 detected song imported'
-              : '$importedCount detected songs imported',
+          [
+            importedCount == 1
+                ? '1 detected song imported'
+                : '$importedCount detected songs imported',
+            if (alreadyImportedCount > 0)
+              alreadyImportedCount == 1
+                  ? '1 duplicate skipped'
+                  : '$alreadyImportedCount duplicates skipped',
+          ].join(' • '),
         ),
       ),
     );

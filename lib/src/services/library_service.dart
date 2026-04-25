@@ -567,6 +567,7 @@ class LibraryService extends ChangeNotifier {
     }
 
     var importedCount = 0;
+    final failures = <String>[];
     await _runImportOperation<void>('Scanning selected songs...', () async {
       final uniqueCandidates = <DeviceAudioCandidate>[];
       final seenPaths = <String>{};
@@ -587,13 +588,21 @@ class LibraryService extends ChangeNotifier {
         importProgressValue = index / uniqueCandidates.length;
         notifyListeners();
 
-        final draft = await _buildImportDraftFromFile(
-          candidate.path,
-          detectedCandidate: candidate,
-        );
-        final importedTrack = await _saveImportedDraft(draft);
-        importedTracks = _upsertTrack(importedTracks, importedTrack);
-        importedCount += 1;
+        try {
+          final draft = await _buildImportDraftFromFile(
+            candidate.path,
+            detectedCandidate: candidate,
+          );
+          final importedTrack = await _saveImportedDraft(draft);
+          importedTracks = _upsertTrack(importedTracks, importedTrack);
+          importedCount += 1;
+        } catch (error, stackTrace) {
+          debugPrint(
+            '[Import] Failed to import detected song ${candidate.path}: $error',
+          );
+          debugPrintStack(stackTrace: stackTrace);
+          failures.add('${candidate.title}: $error');
+        }
         importProgressValue = (index + 1) / uniqueCandidates.length;
         notifyListeners();
       }
@@ -602,6 +611,9 @@ class LibraryService extends ChangeNotifier {
       _refreshArtistCoverArtwork();
       await _persistState();
     });
+    if (importedCount == 0 && failures.isNotEmpty) {
+      throw StateError(failures.first);
+    }
     notifyListeners();
     return importedCount;
   }

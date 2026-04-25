@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:async';
 
 import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
@@ -42,9 +43,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<ArtistProfile> _artistSearchResults = const <ArtistProfile>[];
   bool _artistSearchInFlight = false;
   String? _artistSearchError;
+  Timer? _artistSearchDebounce;
+  int _artistSearchRequestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _artistSearchController.addListener(_handleArtistSearchChanged);
+  }
 
   @override
   void dispose() {
+    _artistSearchDebounce?.cancel();
     _artistSearchController.dispose();
     super.dispose();
   }
@@ -284,13 +294,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                       ),
-                      if (!kIsWeb &&
-                          defaultTargetPlatform == TargetPlatform.android)
-                        FilledButton.tonal(
-                          onPressed: _openScanDeviceSongs,
-                          child: const Text('Scan device songs'),
-                        ),
-                      const SizedBox(width: 8),
                       TextButton(
                         onPressed: _importFiles,
                         child: const Text('Choose files'),
@@ -365,12 +368,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
               icon: const Icon(Icons.person_add_alt_1_rounded),
               label: const Text('Add artist'),
             ),
-            const SizedBox(width: 10),
-            OutlinedButton.icon(
-              onPressed: _runArtistSearch,
-              icon: const Icon(Icons.search_rounded),
-              label: const Text('Search'),
-            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -429,27 +426,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   Expanded(
                     child: TextField(
                       controller: _artistSearchController,
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (_) => _runArtistSearch(),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: 'Search artists',
-                        prefixIcon: Icon(Icons.search_rounded),
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon:
+                            _artistSearchController.text.trim().isEmpty
+                                ? null
+                                : IconButton(
+                                  onPressed: _artistSearchController.clear,
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  FilledButton.tonal(
-                    onPressed: _artistSearchInFlight ? null : _runArtistSearch,
-                    child:
-                        _artistSearchInFlight
-                            ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Text('Search'),
-                  ),
                 ],
               ),
+              if (_artistSearchInFlight) ...<Widget>[
+                const SizedBox(height: 12),
+                const LinearProgressIndicator(),
+              ],
               if (_artistSearchError != null) ...<Widget>[
                 const SizedBox(height: 12),
                 Text(
@@ -504,6 +499,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  void _handleArtistSearchChanged() {
+    _artistSearchDebounce?.cancel();
+    _artistSearchDebounce = Timer(
+      const Duration(milliseconds: 260),
+      _runArtistSearch,
+    );
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   Future<void> _runArtistSearch() async {
     final query = _artistSearchController.text.trim();
     if (query.isEmpty) {
@@ -518,19 +524,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _artistSearchInFlight = true;
       _artistSearchError = null;
     });
+    final requestId = ++_artistSearchRequestId;
 
     try {
       final results = await context.read<LibraryService>().searchRemoteArtists(
         query,
       );
-      if (!mounted) {
+      if (!mounted || requestId != _artistSearchRequestId) {
         return;
       }
       setState(() {
         _artistSearchResults = results;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || requestId != _artistSearchRequestId) {
         return;
       }
       setState(() {
@@ -538,7 +545,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _artistSearchResults = const <ArtistProfile>[];
       });
     } finally {
-      if (mounted) {
+      if (mounted && requestId == _artistSearchRequestId) {
         setState(() {
           _artistSearchInFlight = false;
         });
