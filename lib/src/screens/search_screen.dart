@@ -241,30 +241,34 @@ class _SearchScreenState extends State<SearchScreen> {
     final tiles = <({String label, Color color, _SearchTag tag})>[
       (
         label: 'Crabify',
-        color: const Color(0xFF0A9396),
+        color: CrabifyColors.searchTileA,
         tag: _SearchTag.crabify,
       ),
       (
         label: 'Download',
-        color: const Color(0xFF5F0F40),
+        color: CrabifyColors.searchTileB,
         tag: _SearchTag.downloaded,
       ),
       (
         label: 'Playlists',
-        color: const Color(0xFF1D3557),
+        color: CrabifyColors.searchTileC,
         tag: _SearchTag.playlists,
       ),
       (
         label: 'Imported',
-        color: const Color(0xFF7C2D12),
+        color: CrabifyColors.searchTileD,
         tag: _SearchTag.imported,
       ),
       (
         label: 'Liked Songs',
-        color: const Color(0xFF1D4ED8),
+        color: CrabifyColors.searchTileE,
         tag: _SearchTag.liked,
       ),
-      (label: 'Queue', color: const Color(0xFF14532D), tag: _SearchTag.queue),
+      (
+        label: 'Queue',
+        color: CrabifyColors.searchTileF,
+        tag: _SearchTag.queue,
+      ),
     ];
 
     return tiles.map((entry) {

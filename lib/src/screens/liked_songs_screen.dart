@@ -43,8 +43,8 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: <Color>[
-            Color(0xFF312E81),
-            Color(0xFF1F1A4F),
+            CrabifyColors.likedGradientStart,
+            CrabifyColors.likedGradientMid,
             CrabifyColors.background,
           ],
         ),

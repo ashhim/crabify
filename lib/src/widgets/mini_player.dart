@@ -30,7 +30,7 @@ class MiniPlayer extends StatelessWidget {
         (busyForCurrentTrack ? 'Connecting to audio...' : null);
     final subtitleColor =
         audioPlayerService.lastErrorMessage != null
-            ? const Color(0xFFFFB4A5)
+            ? CrabifyColors.dangerSoft
             : CrabifyColors.textSecondary;
 
     final progress =

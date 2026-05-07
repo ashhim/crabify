@@ -44,7 +44,8 @@ class HomeScreen extends StatelessWidget {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: <Color>[
-                Color(0xFF252B38),
+                CrabifyColors.heroGradientStart,
+                CrabifyColors.heroGradientMid,
                 CrabifyColors.background,
                 CrabifyColors.background,
               ],
@@ -324,7 +325,8 @@ class _RoundIconButton extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.36),
+          color: CrabifyColors.iconSurface.withValues(alpha: 0.9),
+          border: Border.all(color: CrabifyColors.border),
           borderRadius: BorderRadius.circular(18),
         ),
         child: Icon(icon, size: 18),
@@ -623,7 +625,7 @@ class _StatusBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SurfaceCard(
-      color: const Color(0xFF1E2E24),
+      color: CrabifyColors.bannerSurface,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[

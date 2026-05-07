@@ -1106,7 +1106,8 @@ class _DetailHeader extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: <Color>[
-            Color(0xFF2F3343),
+            CrabifyColors.heroGradientStart,
+            CrabifyColors.heroGradientMid,
             CrabifyColors.topBar,
             CrabifyColors.background,
           ],

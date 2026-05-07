@@ -64,7 +64,7 @@ class _SkeletonShimmerState extends State<SkeletonShimmer>
               end: Alignment(alignment.x + 1.2, 0),
               colors: const <Color>[
                 CrabifyColors.surface,
-                CrabifyColors.surfaceRaised,
+                CrabifyColors.surfaceHighlight,
                 CrabifyColors.surface,
               ],
             ),

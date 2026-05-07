@@ -104,7 +104,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: _SummaryCard(
                   title: 'Liked songs',
                   count: library.likedTracks.length,
-                  color: const Color(0xFF312E81),
+                  color: CrabifyColors.summaryLiked,
                   active: filter == _LibraryFilter.liked,
                   onTap:
                       () => library.setSelectedLibraryFilter(
@@ -117,7 +117,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: _SummaryCard(
                   title: 'Downloads',
                   count: library.downloadedTracks.length,
-                  color: const Color(0xFF14532D),
+                  color: CrabifyColors.summaryDownloads,
                   active: filter == _LibraryFilter.downloads,
                   onTap:
                       () => library.setSelectedLibraryFilter(
@@ -134,7 +134,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: _SummaryCard(
                   title: 'Imported',
                   count: library.importedTracks.length,
-                  color: const Color(0xFF7C2D12),
+                  color: CrabifyColors.summaryImported,
                   active: filter == _LibraryFilter.imported,
                   onTap:
                       () => library.setSelectedLibraryFilter(
@@ -147,7 +147,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: _SummaryCard(
                   title: 'Uploads',
                   count: library.uploadedTracks.length,
-                  color: const Color(0xFF0F766E),
+                  color: CrabifyColors.summaryUploads,
                   active: filter == _LibraryFilter.uploads,
                   onTap:
                       () => library.setSelectedLibraryFilter(
@@ -164,7 +164,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: _SummaryCard(
                   title: 'Artists',
                   count: library.localArtists.length,
-                  color: const Color(0xFF1D4ED8),
+                  color: CrabifyColors.summaryArtists,
                   active: filter == _LibraryFilter.artists,
                   onTap:
                       () => library.setSelectedLibraryFilter(
@@ -177,7 +177,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: _SummaryCard(
                   title: 'Recent',
                   count: library.recentTracks.length,
-                  color: const Color(0xFF5B21B6),
+                  color: CrabifyColors.summaryRecent,
                   active: filter == _LibraryFilter.recent,
                   onTap:
                       () => library.setSelectedLibraryFilter(
@@ -318,7 +318,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             ),
                         trailing: IconButton(
                           onPressed:
-                              () => showTrackActionsSheet(context, track: track),
+                              () =>
+                                  showTrackActionsSheet(context, track: track),
                           icon: const Icon(Icons.more_horiz_rounded),
                         ),
                       );

@@ -81,7 +81,7 @@ class ArtworkTile extends StatelessWidget {
                 padding: EdgeInsets.all(size * 0.12),
                 child: Icon(
                   icon,
-                  color: CrabifyColors.textPrimary.withValues(alpha: 0.9),
+                  color: CrabifyColors.accentSoft.withValues(alpha: 0.95),
                   size: size * 0.24,
                 ),
               ),
@@ -124,10 +124,10 @@ class _ArtworkFrame extends StatelessWidget {
 }
 
 const List<List<Color>> _palettes = <List<Color>>[
-  <Color>[Color(0xFF2A3D66), Color(0xFF121212)],
-  <Color>[Color(0xFF5F0F40), Color(0xFF0F0B14)],
-  <Color>[Color(0xFF0A9396), Color(0xFF14213D)],
-  <Color>[Color(0xFF9A3412), Color(0xFF1F2937)],
-  <Color>[Color(0xFF115E59), Color(0xFF111827)],
-  <Color>[Color(0xFF334155), Color(0xFF0F172A)],
+  <Color>[Color(0xFF5A3702), Color(0xFF0B0906)],
+  <Color>[Color(0xFF8A5A0A), Color(0xFF140F09)],
+  <Color>[Color(0xFF3E2A08), Color(0xFF0A0806)],
+  <Color>[Color(0xFF6A4208), Color(0xFF110D08)],
+  <Color>[Color(0xFF4C3313), Color(0xFF0A0907)],
+  <Color>[Color(0xFF7A4E12), Color(0xFF15100A)],
 ];

@@ -125,7 +125,7 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? CrabifyColors.textPrimary : CrabifyColors.textMuted;
+    final color = active ? CrabifyColors.accent : CrabifyColors.textMuted;
 
     return InkWell(
       onTap: onTap,

@@ -161,7 +161,7 @@ class NowPlayingScreen extends StatelessWidget {
                     child: Text(
                       audio.lastErrorMessage!,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFFFFB4A5),
+                        color: CrabifyColors.dangerSoft,
                       ),
                     ),
                   ),
@@ -239,7 +239,7 @@ class NowPlayingScreen extends StatelessWidget {
                       onPressed:
                           busyForCurrentTrack ? null : audio.togglePlayback,
                       style: IconButton.styleFrom(
-                        backgroundColor: CrabifyColors.textPrimary,
+                        backgroundColor: CrabifyColors.accent,
                         foregroundColor: Colors.black,
                         fixedSize: const Size.square(72),
                       ),
@@ -435,7 +435,7 @@ class _QueueSheet extends StatelessWidget {
                           backgroundColor:
                               active
                                   ? CrabifyColors.accent
-                                  : CrabifyColors.surface,
+                                  : CrabifyColors.surfaceMuted,
                           child: Text(
                             '${index + 1}',
                             style: TextStyle(
