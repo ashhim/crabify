@@ -36,5 +36,12 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
+add_custom_command(
+  TARGET ${BINARY_NAME} PRE_BUILD
+  COMMAND powershell -ExecutionPolicy Bypass -File
+    "${CMAKE_CURRENT_SOURCE_DIR}/kill_locked_binary.ps1"
+    "$<TARGET_FILE:${BINARY_NAME}>"
+)
+
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

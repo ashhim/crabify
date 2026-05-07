@@ -26,7 +26,7 @@ class _RootShellState extends State<RootShell> {
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
-      HomeScreen(onOpenUpload: _openUpload),
+      const HomeScreen(),
       const SearchScreen(),
       LibraryScreen(onOpenUpload: _openUpload),
       const LikedSongsScreen(),
@@ -34,54 +34,54 @@ class _RootShellState extends State<RootShell> {
 
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: pages),
-      bottomNavigationBar: Consumer<AudioPlayerService>(
-        builder: (context, audio, _) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              MiniPlayer(
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Consumer<AudioPlayerService>(
+            builder: (context, audio, _) {
+              return MiniPlayer(
                 audioPlayerService: audio,
                 onOpenPlayer: _openNowPlaying,
-              ),
-              Container(
-                color: CrabifyColors.topBar,
-                padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
-                child: SafeArea(
-                  top: false,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: <Widget>[
-                      _NavItem(
-                        icon: FontAwesomeIcons.house,
-                        label: 'Home',
-                        active: _currentIndex == 0,
-                        onTap: () => setState(() => _currentIndex = 0),
-                      ),
-                      _NavItem(
-                        icon: FontAwesomeIcons.magnifyingGlass,
-                        label: 'Search',
-                        active: _currentIndex == 1,
-                        onTap: () => setState(() => _currentIndex = 1),
-                      ),
-                      _NavItem(
-                        icon: FontAwesomeIcons.bookOpen,
-                        label: 'Library',
-                        active: _currentIndex == 2,
-                        onTap: () => setState(() => _currentIndex = 2),
-                      ),
-                      _NavItem(
-                        icon: FontAwesomeIcons.solidHeart,
-                        label: 'Liked',
-                        active: _currentIndex == 3,
-                        onTap: () => setState(() => _currentIndex = 3),
-                      ),
-                    ],
+              );
+            },
+          ),
+          Container(
+            color: CrabifyColors.topBar,
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: <Widget>[
+                  _NavItem(
+                    icon: FontAwesomeIcons.house,
+                    label: 'Home',
+                    active: _currentIndex == 0,
+                    onTap: () => setState(() => _currentIndex = 0),
                   ),
-                ),
+                  _NavItem(
+                    icon: FontAwesomeIcons.magnifyingGlass,
+                    label: 'Search',
+                    active: _currentIndex == 1,
+                    onTap: () => setState(() => _currentIndex = 1),
+                  ),
+                  _NavItem(
+                    icon: FontAwesomeIcons.bookOpen,
+                    label: 'Library',
+                    active: _currentIndex == 2,
+                    onTap: () => setState(() => _currentIndex = 2),
+                  ),
+                  _NavItem(
+                    icon: FontAwesomeIcons.solidHeart,
+                    label: 'Liked',
+                    active: _currentIndex == 3,
+                    onTap: () => setState(() => _currentIndex = 3),
+                  ),
+                ],
               ),
-            ],
-          );
-        },
+            ),
+          ),
+        ],
       ),
     );
   }

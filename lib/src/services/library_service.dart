@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as path;
 
 import '../data/demo_catalog.dart';
@@ -38,6 +39,7 @@ class LibraryService extends ChangeNotifier {
       }
       unawaited(markRecentlyPlayed(track.id, trackSnapshot: track));
     };
+    _audioPlayerService.addBackgroundStateListener(_handlePlayerSessionChanged);
   }
 
   final AudiusApiService _audiusApiService;
@@ -45,6 +47,7 @@ class LibraryService extends ChangeNotifier {
   final DownloadService _downloadService;
   final AudioPlayerService _audioPlayerService;
   final DeviceMediaScannerService _deviceMediaScannerService;
+  Timer? _playerSessionPersistDebounce;
 
   bool isLoading = true;
   bool usingFallbackCatalog = true;
@@ -144,7 +147,9 @@ class LibraryService extends ChangeNotifier {
   );
 
   Future<void> initialize() async {
-    _restoreState(_localStorageService.loadState());
+    final restoredState = _localStorageService.loadState();
+    final restoredPlayerSession = _localStorageService.loadPlayerSession();
+    _restoreState(restoredState);
     _applyTrackOverrides();
     _syncArtistPlaylists();
     _refreshPlaylistCoverArtwork();
@@ -157,8 +162,88 @@ class LibraryService extends ChangeNotifier {
     isLoading = true;
     notifyListeners();
     await refreshOnlineLibrary(silent: true);
+    await _restorePlayerSession(restoredPlayerSession);
     isLoading = false;
     notifyListeners();
+  }
+
+  void markInitializationFailure(String message) {
+    onlineError = message;
+    isLoading = false;
+    notifyListeners();
+  }
+
+  void _handlePlayerSessionChanged() {
+    _playerSessionPersistDebounce?.cancel();
+    _playerSessionPersistDebounce = Timer(const Duration(milliseconds: 900), () {
+      unawaited(_persistPlayerSession());
+    });
+  }
+
+  Future<void> _persistPlayerSession() {
+    return _localStorageService.savePlayerSession(_playerSessionToJson());
+  }
+
+  Map<String, dynamic>? _playerSessionToJson() {
+    final session = _audioPlayerService.exportSessionState();
+    if (session == null) {
+      return null;
+    }
+
+    return <String, dynamic>{
+      ...session,
+      'playlistContextId': _activePlaylistPlaybackId,
+    };
+  }
+
+  Future<void> _restorePlayerSession(Map<String, dynamic> state) async {
+    final rawQueue = (state['queue'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<Map<String, dynamic>>()
+        .map(MusicTrack.fromJson)
+        .toList();
+    if (rawQueue.isEmpty) {
+      await _localStorageService.savePlayerSession(null);
+      return;
+    }
+
+    final resolvedQueue = <MusicTrack>[];
+    for (final savedTrack in rawQueue) {
+      final resolvedTrack = trackById(savedTrack.id) ?? _applyTrackOverride(savedTrack);
+      resolvedQueue.add(resolvedTrack);
+    }
+
+    final playableTracks = await _resolvePlayableTracks(resolvedQueue);
+    if (playableTracks.isEmpty) {
+      await _localStorageService.savePlayerSession(null);
+      return;
+    }
+
+    final currentTrackId = state['currentTrackId'] as String?;
+    final currentIndex = state['currentIndex'] as int?;
+    final position = Duration(
+      milliseconds: state['positionMillis'] as int? ?? 0,
+    );
+    final shuffleEnabled = state['shuffleEnabled'] as bool? ?? false;
+    final loopMode = _loopModeFromName(state['loopMode'] as String?);
+    _activePlaylistPlaybackId = state['playlistContextId'] as String?;
+
+    await _audioPlayerService.restoreSession(
+      tracks: playableTracks,
+      currentTrackId: currentTrackId,
+      currentIndex: currentIndex,
+      position: position,
+      shuffleEnabled: shuffleEnabled,
+      loopMode: loopMode,
+    );
+  }
+
+  @override
+  void dispose() {
+    _playerSessionPersistDebounce?.cancel();
+    _audioPlayerService.removeBackgroundStateListener(
+      _handlePlayerSessionChanged,
+    );
+    super.dispose();
   }
 
   Future<void> refreshOnlineLibrary({bool silent = false}) async {
@@ -490,6 +575,45 @@ class LibraryService extends ChangeNotifier {
       orderedTracks,
       selectedTrackId: orderedTracks.first.id,
       shuffle: true,
+    );
+  }
+
+  Future<void> shuffleFromHome() async {
+    final random = Random();
+    final likedOfflineTracks =
+        likedTracks.where((track) => track.isOfflineAvailable).toList()
+          ..shuffle(random);
+    final likedOnlineTracks =
+        likedTracks.where((track) => !track.isOfflineAvailable).toList()
+          ..shuffle(random);
+    final recentPriorityTracks = List<MusicTrack>.from(recentTracks)
+      ..shuffle(random);
+    final catalogTracks = List<MusicTrack>.from(allTracks)..shuffle(random);
+
+    final orderedTracks = <MusicTrack>[];
+    final seenKeys = <String>{};
+    for (final group in <List<MusicTrack>>[
+      likedOfflineTracks,
+      likedOnlineTracks,
+      recentPriorityTracks,
+      catalogTracks,
+    ]) {
+      for (final track in group) {
+        if (seenKeys.add(track.cacheKey)) {
+          orderedTracks.add(track);
+        }
+      }
+    }
+
+    if (orderedTracks.isEmpty) {
+      _audioPlayerService.reportError('There are no tracks ready to shuffle.');
+      return;
+    }
+
+    await playTracks(
+      orderedTracks,
+      selectedTrackId: orderedTracks.first.id,
+      shuffle: false,
     );
   }
 
@@ -2429,6 +2553,13 @@ class LibraryService extends ChangeNotifier {
     final millis = DateTime.now().microsecondsSinceEpoch;
     final randomValue = Random().nextInt(9000) + 1000;
     return '$prefix-$millis-$randomValue';
+  }
+
+  LoopMode _loopModeFromName(String? value) {
+    return LoopMode.values.firstWhere(
+      (mode) => mode.name == value,
+      orElse: () => LoopMode.off,
+    );
   }
 
   String _slug(String input) {

@@ -28,6 +28,7 @@ class LocalStorageService {
   final Directory _coverDirectory;
 
   static const String _stateKey = 'crabify.library_state.v1';
+  static const String _playerSessionKey = 'crabify.player_session.v1';
 
   static Future<LocalStorageService> create() async {
     final preferences = await SharedPreferences.getInstance();
@@ -87,6 +88,31 @@ class LocalStorageService {
 
   Future<void> saveState(Map<String, dynamic> state) {
     return _preferences.setString(_stateKey, jsonEncode(state));
+  }
+
+  Map<String, dynamic> loadPlayerSession() {
+    final raw = _preferences.getString(_playerSessionKey);
+    if (raw == null || raw.isEmpty) {
+      return <String, dynamic>{};
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  Future<void> savePlayerSession(Map<String, dynamic>? state) async {
+    if (state == null || state.isEmpty) {
+      await _preferences.remove(_playerSessionKey);
+      return;
+    }
+    await _preferences.setString(_playerSessionKey, jsonEncode(state));
   }
 
   Future<String> copyImportedAudio(String sourcePath, String id) async {

@@ -9,6 +9,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../models/music_track.dart';
 import 'audius_api_service.dart';
+import 'notification_artwork_service.dart';
 
 enum PlaybackViewState { idle, loading, playing, paused, stopped, error }
 
@@ -23,6 +24,7 @@ class AudioPlayerService extends ChangeNotifier {
   final Random _random = Random();
   final List<StreamSubscription<dynamic>> _subscriptions =
       <StreamSubscription<dynamic>>[];
+  final Set<VoidCallback> _backgroundStateListeners = <VoidCallback>{};
 
   late final Future<void> _initialization;
   Future<void> _commandChain = Future<void>.value();
@@ -43,9 +45,28 @@ class AudioPlayerService extends ChangeNotifier {
   String? _loadingTrackId;
   bool _disposed = false;
   bool _handlingCompletion = false;
+  Duration? _pendingRestorePosition;
+  String? _pendingRestoreTrackId;
   final List<String> _shuffleOrderKeys = <String>[];
+  DateTime _lastUiProgressNotificationAt = DateTime.fromMillisecondsSinceEpoch(
+    0,
+  );
+  DateTime _lastBackgroundProgressNotificationAt =
+      DateTime.fromMillisecondsSinceEpoch(0);
+  Duration _lastUiNotifiedPosition = Duration.zero;
+  Duration _lastUiNotifiedBufferedPosition = Duration.zero;
+  Duration _lastBackgroundNotifiedPosition = Duration.zero;
 
   static const Duration _loadTimeout = Duration(seconds: 12);
+  static const Duration _uiProgressNotificationInterval = Duration(
+    milliseconds: 250,
+  );
+  static const Duration _backgroundProgressNotificationInterval = Duration(
+    seconds: 1,
+  );
+  static const Duration _bufferedPositionThreshold = Duration(
+    milliseconds: 500,
+  );
 
   void Function(MusicTrack? track)? onTrackChanged;
 
@@ -93,6 +114,74 @@ class AudioPlayerService extends ChangeNotifier {
 
   void reportError(String message) {
     _recordError(message);
+  }
+
+  Map<String, dynamic>? exportSessionState() {
+    final track = currentTrack;
+    if (track == null || _queue.isEmpty || _currentIndex < 0) {
+      return null;
+    }
+
+    return <String, dynamic>{
+      'queue': _queue.map((track) => track.toJson()).toList(),
+      'currentTrackId': track.id,
+      'currentIndex': _currentIndex,
+      'positionMillis': _position.inMilliseconds,
+      'shuffleEnabled': _shuffleEnabled,
+      'loopMode': _loopMode.name,
+      'isPlaying': _isPlaying,
+    };
+  }
+
+  Future<void> restoreSession({
+    required List<MusicTrack> tracks,
+    required String? currentTrackId,
+    required int? currentIndex,
+    required Duration position,
+    required bool shuffleEnabled,
+    required LoopMode loopMode,
+  }) async {
+    await _initialization;
+    if (_disposed || tracks.isEmpty) {
+      return;
+    }
+
+    var resolvedIndex = currentIndex ?? 0;
+    if (currentTrackId != null) {
+      final locatedIndex = tracks.indexWhere((track) => track.id == currentTrackId);
+      if (locatedIndex >= 0) {
+        resolvedIndex = locatedIndex;
+      }
+    }
+    resolvedIndex = resolvedIndex.clamp(0, tracks.length - 1);
+
+    _queue = List<MusicTrack>.from(tracks);
+    _currentIndex = resolvedIndex;
+    _shuffleEnabled = shuffleEnabled;
+    _loopMode = loopMode;
+    _isPlaying = false;
+    _processingState = ProcessingState.idle;
+    _loadedTrackKey = null;
+    _bufferedPosition = Duration.zero;
+    _duration = currentTrack?.duration;
+    _position = _clampRestorePosition(position, currentTrack?.duration);
+    _pendingRestoreTrackId = currentTrack?.id;
+    _pendingRestorePosition = _position > Duration.zero ? _position : null;
+    _refreshShuffleOrder(
+      moveCurrentToFront: _shuffleEnabled,
+      reshuffleTail: false,
+    );
+    _clearError(notify: false);
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
+  }
+
+  void addBackgroundStateListener(VoidCallback listener) {
+    _backgroundStateListeners.add(listener);
+  }
+
+  void removeBackgroundStateListener(VoidCallback listener) {
+    _backgroundStateListeners.remove(listener);
   }
 
   Future<void> setQueue(
@@ -148,7 +237,8 @@ class AudioPlayerService extends ChangeNotifier {
     _queue = previousQueue;
     _currentIndex = previousIndex;
     _loadedTrackKey = previousLoadedTrackKey;
-    notifyListeners();
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
   }
 
   Future<void> addToQueue(MusicTrack track) async {
@@ -229,7 +319,8 @@ class AudioPlayerService extends ChangeNotifier {
     if (removed != true) {
       _queue = previousQueue;
       _currentIndex = previousIndex;
-      notifyListeners();
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
     }
   }
 
@@ -319,7 +410,8 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
 
-    notifyListeners();
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
   }
 
   Future<void> play() async {
@@ -494,21 +586,29 @@ class AudioPlayerService extends ChangeNotifier {
     _subscriptions.add(
       _player.positionStream.listen((position) {
         _position = position;
-        notifyListeners();
+        if (_shouldNotifyUiProgress(position)) {
+          _notifyUiListeners();
+        }
+        if (_shouldNotifyBackgroundProgress(position)) {
+          _notifyBackgroundStateListeners();
+        }
       }),
     );
 
     _subscriptions.add(
       _player.bufferedPositionStream.listen((position) {
         _bufferedPosition = position;
-        notifyListeners();
+        if (_shouldNotifyBufferedProgress(position)) {
+          _notifyUiListeners();
+        }
       }),
     );
 
     _subscriptions.add(
       _player.durationStream.listen((duration) {
         _duration = duration;
-        notifyListeners();
+        _notifyUiListeners();
+        _notifyBackgroundStateListeners();
       }),
     );
 
@@ -553,7 +653,8 @@ class AudioPlayerService extends ChangeNotifier {
           unawaited(_handleTrackCompletion());
         }
 
-        notifyListeners();
+        _notifyUiListeners();
+        _notifyBackgroundStateListeners();
       }),
     );
 
@@ -653,7 +754,7 @@ class AudioPlayerService extends ChangeNotifier {
       _position = Duration.zero;
       _bufferedPosition = Duration.zero;
       _duration = track.duration;
-      notifyListeners();
+      _notifyUiListeners();
       final tag = _mediaItemForTrack(track);
       Duration? loadedDuration;
       if (track.hasValidLocalSource) {
@@ -680,9 +781,11 @@ class AudioPlayerService extends ChangeNotifier {
         loadedDuration = await _loadRemoteTrack(track, tag: tag);
       }
       _duration = loadedDuration ?? track.duration;
+      await _applyPendingRestorePosition(track, loadedDuration);
       _loadedTrackKey = trackKey;
       _clearLoadingState(trackId: track.id, notify: false);
-      notifyListeners();
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
     }
 
     if (autoPlay) {
@@ -779,7 +882,8 @@ class AudioPlayerService extends ChangeNotifier {
     _bufferedPosition = Duration.zero;
     _processingState = ProcessingState.idle;
     _clearLoadingState(trackId: track.id, notify: false);
-    notifyListeners();
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
   }
 
   Future<Duration?> _setRemoteUrl(
@@ -855,7 +959,7 @@ class AudioPlayerService extends ChangeNotifier {
     final artUri = switch ((track.artworkPath, track.artworkUrl)) {
       (String path, _) when path.isNotEmpty => Uri.file(path),
       (_, String url) when url.isNotEmpty => Uri.parse(url),
-      _ => null,
+      _ => NotificationArtworkService.cachedFallbackArtworkUri,
     };
 
     return MediaItem(
@@ -888,6 +992,20 @@ class AudioPlayerService extends ChangeNotifier {
     return track.hasValidLocalSource
         ? '${track.id}:${track.localPath}'
         : '${track.id}:${_audiusApiService.resolveStreamUrl(track)}';
+  }
+
+  Duration _clampRestorePosition(
+    Duration position,
+    Duration? maxDuration,
+  ) {
+    if (position <= Duration.zero) {
+      return Duration.zero;
+    }
+    final duration = maxDuration;
+    if (duration == null || duration <= Duration.zero) {
+      return position;
+    }
+    return position > duration ? duration : position;
   }
 
   bool get _needsReloadCurrentTrack {
@@ -1057,7 +1175,8 @@ class AudioPlayerService extends ChangeNotifier {
             _loadingTrackId = subject.id;
           }
           _clearError(notify: false);
-          notifyListeners();
+          _notifyUiListeners();
+          _notifyBackgroundStateListeners();
 
           debugPrint(
             '[Audio] Starting $action'
@@ -1111,7 +1230,8 @@ class AudioPlayerService extends ChangeNotifier {
             _activeCommandAction = null;
             _activeCommandTrackId = null;
             if (!_disposed) {
-              notifyListeners();
+              _notifyUiListeners();
+              _notifyBackgroundStateListeners();
             }
           }
         });
@@ -1121,14 +1241,38 @@ class AudioPlayerService extends ChangeNotifier {
 
   void _announceTrackChange() {
     onTrackChanged?.call(currentTrack);
-    notifyListeners();
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
+  }
+
+  Future<void> _applyPendingRestorePosition(
+    MusicTrack track,
+    Duration? loadedDuration,
+  ) async {
+    if (_pendingRestoreTrackId != track.id || _pendingRestorePosition == null) {
+      return;
+    }
+
+    final desiredPosition = _clampRestorePosition(
+      _pendingRestorePosition!,
+      loadedDuration ?? track.duration,
+    );
+    _pendingRestoreTrackId = null;
+    _pendingRestorePosition = null;
+
+    if (desiredPosition <= Duration.zero) {
+      _position = Duration.zero;
+      return;
+    }
+
+    await _player.seek(desiredPosition);
+    _position = desiredPosition;
   }
 
   void _recordError(String message) {
     _lastErrorMessage = message;
-    if (!_disposed) {
-      notifyListeners();
-    }
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
   }
 
   void _clearError({bool notify = true}) {
@@ -1136,8 +1280,9 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
     _lastErrorMessage = null;
-    if (notify && !_disposed) {
-      notifyListeners();
+    if (notify) {
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
     }
   }
 
@@ -1268,9 +1413,62 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
     _loadingTrackId = null;
-    if (notify && !_disposed) {
-      notifyListeners();
+    if (notify) {
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
     }
+  }
+
+  void _notifyUiListeners() {
+    if (_disposed) {
+      return;
+    }
+    notifyListeners();
+  }
+
+  void _notifyBackgroundStateListeners() {
+    if (_disposed || _backgroundStateListeners.isEmpty) {
+      return;
+    }
+    for (final listener in _backgroundStateListeners.toList()) {
+      listener();
+    }
+  }
+
+  bool _shouldNotifyUiProgress(Duration position) {
+    final now = DateTime.now();
+    final shouldNotify =
+        now.difference(_lastUiProgressNotificationAt) >=
+            _uiProgressNotificationInterval ||
+        (position - _lastUiNotifiedPosition).inMilliseconds.abs() >= 250;
+    if (shouldNotify) {
+      _lastUiProgressNotificationAt = now;
+      _lastUiNotifiedPosition = position;
+    }
+    return shouldNotify;
+  }
+
+  bool _shouldNotifyBackgroundProgress(Duration position) {
+    final now = DateTime.now();
+    final shouldNotify =
+        now.difference(_lastBackgroundProgressNotificationAt) >=
+            _backgroundProgressNotificationInterval ||
+        (position - _lastBackgroundNotifiedPosition).inSeconds.abs() >= 1;
+    if (shouldNotify) {
+      _lastBackgroundProgressNotificationAt = now;
+      _lastBackgroundNotifiedPosition = position;
+    }
+    return shouldNotify;
+  }
+
+  bool _shouldNotifyBufferedProgress(Duration position) {
+    final shouldNotify =
+        (position - _lastUiNotifiedBufferedPosition).inMilliseconds.abs() >=
+        _bufferedPositionThreshold.inMilliseconds;
+    if (shouldNotify) {
+      _lastUiNotifiedBufferedPosition = position;
+    }
+    return shouldNotify;
   }
 
   void _refreshShuffleOrder({

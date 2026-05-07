@@ -13,9 +13,7 @@ import '../widgets/track_actions.dart';
 import 'detail_screen.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, required this.onOpenUpload});
-
-  final VoidCallback onOpenUpload;
+  const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +25,22 @@ class HomeScreen extends StatelessWidget {
                 : library.onlineTracks.take(4).toList();
         final playlists = library.playlists.take(6).toList();
         final onlineTracks = library.onlineTracks;
-        final offlineTracks = library.localTracks.take(6).toList();
+        final likedShelfTracks = library.likedTracks;
+        final recentShelfTracks = library.recentTracks;
+        final offlineShelfTracks = library.localTracks;
+        final preferredShelfSourceTracks =
+            likedShelfTracks.isNotEmpty
+                ? likedShelfTracks
+                : recentShelfTracks.isNotEmpty
+                ? recentShelfTracks
+                : offlineShelfTracks;
+        final preferredShelfTracks = preferredShelfSourceTracks.take(6).toList();
+        final preferredShelfTitle =
+            likedShelfTracks.isNotEmpty
+                ? 'Liked songs'
+                : recentShelfTracks.isNotEmpty
+                ? 'Recent songs'
+                : 'Offline songs';
         final localArtists =
             library.artists
                 .where(
@@ -56,7 +69,7 @@ class HomeScreen extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
               children: <Widget>[
-                _TopBar(onOpenUpload: onOpenUpload),
+                const _TopBar(),
                 const SizedBox(height: 22),
                 Text(
                   'Good evening',
@@ -208,23 +221,20 @@ class HomeScreen extends StatelessWidget {
                       },
                     ),
                   ],
-                  if (offlineTracks.isNotEmpty) ...<Widget>[
+                  if (preferredShelfTracks.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 28),
-                    if (offlineTracks.length >= 2) ...<Widget>[
-                      _SectionHeader(
-                        title: 'Offline library',
-                        actionLabel: 'Manage',
-                      ),
+                    if (preferredShelfTracks.length >= 2) ...<Widget>[
+                      _SectionHeader(title: preferredShelfTitle),
                       const SizedBox(height: 14),
                     ],
                     Column(
                       children:
-                          offlineTracks.map((track) {
+                          preferredShelfTracks.map((track) {
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
                               onTap:
                                   () => library.playTracks(
-                                    offlineTracks,
+                                    preferredShelfSourceTracks,
                                     selectedTrackId: track.id,
                                   ),
                               leading: ArtworkTile(
@@ -276,34 +286,17 @@ double _responsiveCardWidth(double availableWidth) {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onOpenUpload});
-
-  final VoidCallback onOpenUpload;
+  const _TopBar();
 
   @override
   Widget build(BuildContext context) {
+    final library = context.read<LibraryService>();
     return Row(
       children: <Widget>[
-        _RoundIconButton(icon: Icons.arrow_back_ios_new_rounded, onTap: () {}),
-        const SizedBox(width: 10),
-        _RoundIconButton(icon: Icons.arrow_forward_ios_rounded, onTap: () {}),
         const Spacer(),
-        FilledButton.tonal(
-          onPressed: onOpenUpload,
-          child: const Text('Upload'),
-        ),
-        const SizedBox(width: 10),
         _RoundIconButton(
           icon: Icons.shuffle_rounded,
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Shuffle from the player or any collection view.',
-                ),
-              ),
-            );
-          },
+          onTap: library.shuffleFromHome,
         ),
       ],
     );
