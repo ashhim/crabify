@@ -21,9 +21,7 @@ enum _LibraryFilter {
   playlists,
   artists,
   liked,
-  downloads,
-  imported,
-  uploads,
+  offline,
   recent,
 }
 
@@ -98,121 +96,79 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
             const SizedBox(height: 18),
           ],
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: _SummaryCard(
-                  title: 'Liked songs',
-                  count: library.likedTracks.length,
-                  color: CrabifyColors.summaryLiked,
-                  active: filter == _LibraryFilter.liked,
-                  onTap:
-                      () => library.setSelectedLibraryFilter(
-                        _keyForFilter(_LibraryFilter.liked),
-                      ),
+          _SummaryCard(
+            title: 'Playlist',
+            count: library.playlists.length,
+            color: CrabifyColors.summaryUploads,
+            active: filter == _LibraryFilter.playlists,
+            onTap:
+                () => library.setSelectedLibraryFilter(
+                  _keyForFilter(_LibraryFilter.playlists),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _SummaryCard(
-                  title: 'Downloads',
-                  count: library.downloadedTracks.length,
-                  color: CrabifyColors.summaryDownloads,
-                  active: filter == _LibraryFilter.downloads,
-                  onTap:
-                      () => library.setSelectedLibraryFilter(
-                        _keyForFilter(_LibraryFilter.downloads),
-                      ),
-                ),
-              ),
-            ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: _SummaryCard(
-                  title: 'Imported',
-                  count: library.importedTracks.length,
-                  color: CrabifyColors.summaryImported,
-                  active: filter == _LibraryFilter.imported,
-                  onTap:
-                      () => library.setSelectedLibraryFilter(
-                        _keyForFilter(_LibraryFilter.imported),
-                      ),
+          const SizedBox(height: 10),
+          _SummaryCard(
+            title: 'Artists',
+            count: library.localArtists.length,
+            color: CrabifyColors.summaryArtists,
+            active: filter == _LibraryFilter.artists,
+            onTap:
+                () => library.setSelectedLibraryFilter(
+                  _keyForFilter(_LibraryFilter.artists),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _SummaryCard(
-                  title: 'Uploads',
-                  count: library.uploadedTracks.length,
-                  color: CrabifyColors.summaryUploads,
-                  active: filter == _LibraryFilter.uploads,
-                  onTap:
-                      () => library.setSelectedLibraryFilter(
-                        _keyForFilter(_LibraryFilter.uploads),
-                      ),
-                ),
-              ),
-            ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: _SummaryCard(
-                  title: 'Artists',
-                  count: library.localArtists.length,
-                  color: CrabifyColors.summaryArtists,
-                  active: filter == _LibraryFilter.artists,
-                  onTap:
-                      () => library.setSelectedLibraryFilter(
-                        _keyForFilter(_LibraryFilter.artists),
-                      ),
+          const SizedBox(height: 10),
+          _SummaryCard(
+            title: 'Liked',
+            count: library.likedTracks.length,
+            color: CrabifyColors.summaryLiked,
+            active: filter == _LibraryFilter.liked,
+            onTap:
+                () => library.setSelectedLibraryFilter(
+                  _keyForFilter(_LibraryFilter.liked),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _SummaryCard(
-                  title: 'Recent',
-                  count: library.recentTracks.length,
-                  color: CrabifyColors.summaryRecent,
-                  active: filter == _LibraryFilter.recent,
-                  onTap:
-                      () => library.setSelectedLibraryFilter(
-                        _keyForFilter(_LibraryFilter.recent),
-                      ),
+          ),
+          const SizedBox(height: 10),
+          _SummaryCard(
+            title: 'Offline',
+            count: library.localTracks.length,
+            color: CrabifyColors.summaryImported,
+            active: filter == _LibraryFilter.offline,
+            onTap:
+                () => library.setSelectedLibraryFilter(
+                  _keyForFilter(_LibraryFilter.offline),
                 ),
-              ),
-            ],
           ),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children:
-                _LibraryFilter.values.map((candidate) {
-                  return ChoiceChip(
-                    selected: filter == candidate,
-                    label: Text(_labelForFilter(candidate)),
-                    onSelected:
-                        (_) => library.setSelectedLibraryFilter(
-                          _keyForFilter(candidate),
-                        ),
-                  );
-                }).toList(),
+          const SizedBox(height: 10),
+          _SummaryCard(
+            title: 'Recent',
+            count: library.recentTracks.length,
+            color: CrabifyColors.summaryRecent,
+            active: filter == _LibraryFilter.recent,
+            onTap:
+                () => library.setSelectedLibraryFilter(
+                  _keyForFilter(_LibraryFilter.recent),
+                ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           if (filter == _LibraryFilter.playlists) ...<Widget>[
-            _ActionBanner(
+            _SectionToolbar(
               title: 'Make this library yours',
-              message:
-                  '', //Create playlists, import audio files from your device, and keep offline tracks close
-              actionLabel: 'Import files',
-              onAction: _importFiles,
+              actions: <Widget>[
+                IconButton.filledTonal(
+                  tooltip: 'Import files',
+                  onPressed: _importFiles,
+                  icon: const Icon(Icons.file_upload_rounded),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Shuffle all playlists',
+                  onPressed:
+                      library.playlists.isEmpty ? null : library.shuffleAllPlaylists,
+                  icon: const Icon(Icons.shuffle_rounded),
+                ),
+              ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             if (library.playlists.isEmpty)
               const _EmptyCard(
                 title: 'No playlists yet',
@@ -220,15 +176,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     '', //Create your first playlist, then add online or offline tracks to it from any track menu.
               )
             else ...<Widget>[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  onPressed: library.shuffleAllPlaylists,
-                  icon: const Icon(Icons.shuffle_rounded),
-                  label: const Text('Shuffle all playlists'),
-                ),
-              ),
-              const SizedBox(height: 8),
               ...library.playlists.map((playlist) {
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -273,67 +220,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 emptyMessage:
                     '', //Heart tracks from Home, Search, playlists, or the player and they will stay here.
               ),
-            if (filter == _LibraryFilter.downloads)
-              _TrackSection(
-                title: 'Downloaded songs',
-                tracks: library.downloadedTracks,
-                emptyTitle: 'No downloads yet',
-                emptyMessage:
-                    '', //Save tracks from the online catalog and they will appear here for offline playback.
-              ),
-            if (filter == _LibraryFilter.imported)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          'Imported audio',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: _importFiles,
-                        child: const Text('Choose files'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (library.importedTracks.isEmpty)
-                    const _EmptyCard(
-                      title: 'No imported tracks yet',
-                      message:
-                          '', //Scan device songs or choose files from your device to bring them into Crabify.
-                    )
-                  else
-                    ...library.importedTracks.map((track) {
-                      return TrackTile(
-                        track: track,
-                        onTap:
-                            () => library.playTracks(
-                              library.importedTracks,
-                              selectedTrackId: track.id,
-                            ),
-                        trailing: IconButton(
-                          onPressed:
-                              () =>
-                                  showTrackActionsSheet(context, track: track),
-                          icon: const Icon(Icons.more_horiz_rounded),
-                        ),
-                      );
-                    }),
-                ],
-              ),
-            if (filter == _LibraryFilter.uploads)
-              _TrackSection(
-                title: 'Uploaded tracks',
-                tracks: library.uploadedTracks,
-                emptyTitle: 'No uploads yet',
-                emptyMessage:
-                    '', //Save a track locally from the upload screen, then publish it through your secure backend when one is configured.
-              ),
+            if (filter == _LibraryFilter.offline)
+              _OfflineSection(onImport: _importFiles),
             if (filter == _LibraryFilter.recent) _RecentSection(),
           ],
         ],
@@ -347,31 +235,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _ActionBanner(
-          title: 'Artist',
-          message:
-              '', //Crabify groups your imported, downloaded, and uploaded tracks into artist pages. Removing an artist here hides the artist card without touching any songs.
-          actionLabel: 'Import files',
-          onAction: _importFiles,
-        ),
-        const SizedBox(height: 18),
-        Text(
-          'Saved artists',
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: <Widget>[
-            FilledButton.tonalIcon(
+        _SectionToolbar(
+          title: 'Artists',
+          actions: <Widget>[
+            IconButton.filledTonal(
+              tooltip: 'Import files',
+              onPressed: _importFiles,
+              icon: const Icon(Icons.file_upload_rounded),
+            ),
+            IconButton.filledTonal(
+              tooltip: 'Add artist',
               onPressed: _showCreateArtistDialog,
               icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: const Text('Add artist'),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         if (artists.isEmpty)
           const _EmptyCard(
             title: 'No artists yet',
@@ -881,23 +760,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  String _labelForFilter(_LibraryFilter filter) {
-    return switch (filter) {
-      _LibraryFilter.playlists => 'Playlists',
-      _LibraryFilter.artists => 'Artists',
-      _LibraryFilter.liked => 'Liked Songs',
-      _LibraryFilter.downloads => 'Downloads',
-      _LibraryFilter.imported => 'Imported',
-      _LibraryFilter.uploads => 'Uploads',
-      _LibraryFilter.recent => 'Recent',
-    };
-  }
-
   _LibraryFilter _filterFromKey(String key) {
-    return _LibraryFilter.values.firstWhere(
-      (filter) => _keyForFilter(filter) == key,
-      orElse: () => _LibraryFilter.playlists,
-    );
+    return switch (key) {
+      'playlists' => _LibraryFilter.playlists,
+      'artists' => _LibraryFilter.artists,
+      'liked' => _LibraryFilter.liked,
+      'offline' || 'downloads' || 'imported' || 'uploads' =>
+        _LibraryFilter.offline,
+      'recent' => _LibraryFilter.recent,
+      _ => _LibraryFilter.playlists,
+    };
   }
 
   String _keyForFilter(_LibraryFilter filter) {
@@ -905,9 +777,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _LibraryFilter.playlists => 'playlists',
       _LibraryFilter.artists => 'artists',
       _LibraryFilter.liked => 'liked',
-      _LibraryFilter.downloads => 'downloads',
-      _LibraryFilter.imported => 'imported',
-      _LibraryFilter.uploads => 'uploads',
+      _LibraryFilter.offline => 'offline',
       _LibraryFilter.recent => 'recent',
     };
   }
@@ -932,35 +802,113 @@ class _SummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(18),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.all(16),
+        height: 58,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(22),
-          border:
-              active ? Border.all(color: CrabifyColors.accent, width: 2) : null,
+          color:
+              active
+                  ? Color.alphaBlend(
+                    CrabifyColors.accent.withValues(alpha: 0.08),
+                    CrabifyColors.surfaceRaised,
+                  )
+                  : CrabifyColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: active ? CrabifyColors.accent : CrabifyColors.border,
+            width: active ? 1.6 : 1,
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: <Widget>[
-            Text(
-              title,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: active ? CrabifyColors.accent : color,
+                shape: BoxShape.circle,
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
             Text(
               '$count items',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.82),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: CrabifyColors.textSecondary,
+                fontWeight: FontWeight.w600,
               ),
+            ),
+            const SizedBox(width: 12),
+            Icon(
+              Icons.chevron_right_rounded,
+              color:
+                  active
+                      ? CrabifyColors.accent
+                      : Colors.white.withValues(alpha: 0.78),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _OfflineSection extends StatelessWidget {
+  const _OfflineSection({required this.onImport});
+
+  final VoidCallback onImport;
+
+  @override
+  Widget build(BuildContext context) {
+    final library = context.watch<LibraryService>();
+    final tracks = library.localTracks;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _SectionToolbar(
+          title: 'Offline songs',
+          actions: <Widget>[
+            IconButton.filledTonal(
+              tooltip: 'Import files',
+              onPressed: onImport,
+              icon: const Icon(Icons.file_upload_rounded),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (tracks.isEmpty)
+          const _EmptyCard(
+            title: 'No offline songs yet',
+            message:
+                'Import local files, download tracks, or save uploads and they will appear here.',
+          )
+        else
+          ...tracks.map((track) {
+            return TrackTile(
+              track: track,
+              onTap: () => library.playTracks(tracks, selectedTrackId: track.id),
+              trailing: IconButton(
+                onPressed: () => showTrackActionsSheet(context, track: track),
+                icon: const Icon(Icons.more_horiz_rounded),
+              ),
+            );
+          }),
+      ],
     );
   }
 }
@@ -994,38 +942,27 @@ class _ImportStatusCard extends StatelessWidget {
   }
 }
 
-class _ActionBanner extends StatelessWidget {
-  const _ActionBanner({
-    required this.title,
-    required this.message,
-    required this.actionLabel,
-    required this.onAction,
-  });
+class _SectionToolbar extends StatelessWidget {
+  const _SectionToolbar({required this.title, required this.actions});
 
   final String title;
-  final String message;
-  final String actionLabel;
-  final VoidCallback onAction;
+  final List<Widget> actions;
 
   @override
   Widget build(BuildContext context) {
-    return SurfaceCard(
-      color: CrabifyColors.surfaceRaised,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
             title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(message),
-          const SizedBox(height: 14),
-          FilledButton.tonal(onPressed: onAction, child: Text(actionLabel)),
-        ],
-      ),
+        ),
+        const SizedBox(width: 12),
+        Wrap(spacing: 8, children: actions),
+      ],
     );
   }
 }

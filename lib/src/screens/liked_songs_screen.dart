@@ -94,11 +94,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                   onPressed:
                       filteredTracks.isEmpty
                           ? null
-                          : () => library.playTracks(
-                            filteredTracks,
-                            selectedTrackId: filteredTracks.first.id,
-                            shuffle: true,
-                          ),
+                          : () => library.playTracksShuffled(filteredTracks),
                   icon: const Icon(Icons.shuffle_rounded),
                   label: const Text('Shuffle'),
                 ),

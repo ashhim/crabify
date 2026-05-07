@@ -124,11 +124,7 @@ class CollectionDetailScreen extends StatelessWidget {
                                       currentCollection,
                                       shuffle: true,
                                     )
-                                    : library.playTracks(
-                                      tracks,
-                                      selectedTrackId: tracks.first.id,
-                                      shuffle: true,
-                                    ),
+                                    : library.playTracksShuffled(tracks),
                     icon: const Icon(Icons.shuffle_rounded),
                     label: const Text('Shuffle'),
                   ),

@@ -403,12 +403,7 @@ class _TrackTagSection extends StatelessWidget {
           tracks.isEmpty
               ? null
               : TextButton.icon(
-                onPressed:
-                    () => library.playTracks(
-                      tracks,
-                      selectedTrackId: tracks.first.id,
-                      shuffle: true,
-                    ),
+                onPressed: () => library.playTracksShuffled(tracks),
                 icon: const Icon(Icons.shuffle_rounded),
                 label: const Text('Shuffle'),
               ),

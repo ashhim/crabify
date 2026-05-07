@@ -47,6 +47,7 @@ class LibraryService extends ChangeNotifier {
   final DownloadService _downloadService;
   final AudioPlayerService _audioPlayerService;
   final DeviceMediaScannerService _deviceMediaScannerService;
+  final Random _random = Random();
   Timer? _playerSessionPersistDebounce;
 
   bool isLoading = true;
@@ -528,6 +529,35 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
+  Future<void> playTracksShuffled(
+    List<MusicTrack> tracks, {
+    String? playlistContextId,
+  }) async {
+    final playableTracks = await _resolvePlayableTracks(tracks);
+    if (playableTracks.isEmpty) {
+      _audioPlayerService.reportError('No playable tracks are available right now.');
+      return;
+    }
+
+    final selectedTrack = playableTracks[_random.nextInt(playableTracks.length)];
+    try {
+      _activePlaylistPlaybackId = playlistContextId;
+      _rememberTracks(playableTracks);
+      await _audioPlayerService.setQueue(
+        playableTracks,
+        initialTrackId: selectedTrack.id,
+        shuffle: true,
+      );
+      if (_audioPlayerService.currentTrack?.cacheKey !=
+          selectedTrack.cacheKey) {
+        return;
+      }
+      await markRecentlyPlayed(selectedTrack.id, trackSnapshot: selectedTrack);
+    } catch (error) {
+      debugPrint('[Audio] Failed to play shuffled track queue: $error');
+    }
+  }
+
   Future<void> playPlaylist(
     MusicCollection playlist, {
     String? selectedTrackId,
@@ -539,11 +569,12 @@ class LibraryService extends ChangeNotifier {
       return;
     }
 
-    final startTrackId =
-        selectedTrackId ??
-        (shuffle
-            ? tracks[Random().nextInt(tracks.length)].id
-            : tracks.first.id);
+    if (shuffle && selectedTrackId == null) {
+      await playTracksShuffled(tracks, playlistContextId: playlist.id);
+      return;
+    }
+
+    final startTrackId = selectedTrackId ?? tracks.first.id;
     await playTracks(
       tracks,
       selectedTrackId: startTrackId,
@@ -570,12 +601,7 @@ class LibraryService extends ChangeNotifier {
       return;
     }
 
-    orderedTracks.shuffle(Random());
-    await playTracks(
-      orderedTracks,
-      selectedTrackId: orderedTracks.first.id,
-      shuffle: true,
-    );
+    await playTracksShuffled(orderedTracks);
   }
 
   Future<void> shuffleFromHome() async {
