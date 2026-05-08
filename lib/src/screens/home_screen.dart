@@ -5,6 +5,7 @@ import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
 import '../models/music_track.dart';
 import '../services/library_service.dart';
+import '../services/sleep_timer_service.dart';
 import '../theme/crabify_theme.dart';
 import '../widgets/artwork_tile.dart';
 import '../widgets/skeletons.dart';
@@ -303,7 +304,7 @@ class _TopBar extends StatelessWidget {
 
     return Row(
       children: <Widget>[
-        const Spacer(),
+        const Expanded(child: _SleepCountdownLabel()),
         GestureDetector(
           onTap: () async {
             final uri = Uri.parse(
@@ -316,8 +317,8 @@ class _TopBar extends StatelessWidget {
           },
           child: Image.asset(
             'assets/logo.png',
-            width: 24,
-            height: 24,
+            width: 30,
+            height: 30,
             fit: BoxFit.contain,
             filterQuality: FilterQuality.high,
             isAntiAlias: true,
@@ -325,10 +326,67 @@ class _TopBar extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         _RoundIconButton(
+          icon: Icons.schedule_rounded,
+          onTap: () => _selectSleepTime(context),
+        ),
+        const SizedBox(width: 8),
+        _RoundIconButton(
           icon: Icons.shuffle_rounded,
           onTap: library.shuffleFromHome,
         ),
       ],
+    );
+  }
+
+  Future<void> _selectSleepTime(BuildContext context) async {
+    final sleepTimer = context.read<SleepTimerService>();
+    final initialTarget = sleepTimer.targetTime;
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime:
+          initialTarget == null
+              ? TimeOfDay.now()
+              : TimeOfDay.fromDateTime(initialTarget),
+    );
+    if (!context.mounted || pickedTime == null) {
+      return;
+    }
+    await sleepTimer.setSleepTime(pickedTime);
+  }
+}
+
+class _SleepCountdownLabel extends StatelessWidget {
+  const _SleepCountdownLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<SleepTimerService>(
+      builder: (context, sleepTimer, _) {
+        if (!sleepTimer.isActive) {
+          return const SizedBox.shrink();
+        }
+
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: CrabifyColors.iconSurface.withValues(alpha: 0.82),
+              border: Border.all(color: CrabifyColors.border),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              sleepTimer.countdownLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: CrabifyColors.accent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

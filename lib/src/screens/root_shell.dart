@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:provider/provider.dart';
 
 import '../models/upload_draft.dart';
-import '../services/audio_player_service.dart';
 import '../theme/crabify_theme.dart';
 import '../widgets/mini_player.dart';
 import 'home_screen.dart';
@@ -45,14 +43,7 @@ class _RootShellState extends State<RootShell> {
         bottomNavigationBar: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Consumer<AudioPlayerService>(
-              builder: (context, audio, _) {
-                return MiniPlayer(
-                  audioPlayerService: audio,
-                  onOpenPlayer: _openNowPlaying,
-                );
-              },
-            ),
+            MiniPlayer(onOpenPlayer: _openNowPlaying),
             Container(
               color: CrabifyColors.topBar,
               padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),

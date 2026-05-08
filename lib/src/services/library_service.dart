@@ -186,6 +186,11 @@ class LibraryService extends ChangeNotifier {
     return _localStorageService.savePlayerSession(_playerSessionToJson());
   }
 
+  Future<void> persistPlayerSessionNow() async {
+    _playerSessionPersistDebounce?.cancel();
+    await _persistPlayerSession();
+  }
+
   Map<String, dynamic>? _playerSessionToJson() {
     final session = _audioPlayerService.exportSessionState();
     if (session == null) {
@@ -228,6 +233,7 @@ class LibraryService extends ChangeNotifier {
     );
     final shuffleEnabled = state['shuffleEnabled'] as bool? ?? false;
     final loopMode = _loopModeFromName(state['loopMode'] as String?);
+    final repeatMode = _repeatModeFromName(state['repeatMode'] as String?);
     _activePlaylistPlaybackId = state['playlistContextId'] as String?;
 
     await _audioPlayerService.restoreSession(
@@ -238,6 +244,7 @@ class LibraryService extends ChangeNotifier {
       position: position,
       shuffleEnabled: shuffleEnabled,
       loopMode: loopMode,
+      repeatMode: repeatMode,
     );
   }
 
@@ -2612,6 +2619,13 @@ class LibraryService extends ChangeNotifier {
     return LoopMode.values.firstWhere(
       (mode) => mode.name == value,
       orElse: () => LoopMode.off,
+    );
+  }
+
+  TrackRepeatMode _repeatModeFromName(String? value) {
+    return TrackRepeatMode.values.firstWhere(
+      (mode) => mode.name == value,
+      orElse: () => TrackRepeatMode.off,
     );
   }
 

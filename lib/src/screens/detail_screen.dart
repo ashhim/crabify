@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
 import '../models/music_track.dart';
+import '../services/audio_player_service.dart';
 import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
 import '../widgets/artwork_tile.dart';
@@ -461,10 +462,14 @@ class _PlaylistTrackRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = context.read<LibraryService>();
+    final activeTrackCacheKey = context.select<AudioPlayerService, String?>(
+      (audio) => audio.currentTrack?.cacheKey,
+    );
     return Column(
       children: <Widget>[
         TrackTile(
           track: track,
+          active: activeTrackCacheKey == track.cacheKey,
           leadingIndex: index + 1,
           onTap:
               () => library.playPlaylist(

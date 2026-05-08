@@ -12,6 +12,7 @@ import 'audius_api_service.dart';
 import 'notification_artwork_service.dart';
 
 enum PlaybackViewState { idle, loading, playing, paused, stopped, error }
+enum TrackRepeatMode { off, once, loop }
 
 class AudioPlayerService extends ChangeNotifier {
   AudioPlayerService({required AudiusApiService audiusApiService})
@@ -38,6 +39,7 @@ class AudioPlayerService extends ChangeNotifier {
   bool _isPlaying = false;
   bool _shuffleEnabled = false;
   LoopMode _loopMode = LoopMode.off;
+  TrackRepeatMode _repeatMode = TrackRepeatMode.off;
   ProcessingState _processingState = ProcessingState.idle;
   String? _lastErrorMessage;
   String? _loadedTrackKey;
@@ -61,13 +63,13 @@ class AudioPlayerService extends ChangeNotifier {
 
   static const Duration _loadTimeout = Duration(seconds: 12);
   static const Duration _uiProgressNotificationInterval = Duration(
-    milliseconds: 250,
+    milliseconds: 300,
   );
   static const Duration _backgroundProgressNotificationInterval = Duration(
     seconds: 1,
   );
   static const Duration _bufferedPositionThreshold = Duration(
-    milliseconds: 500,
+    milliseconds: 750,
   );
 
   void Function(MusicTrack? track)? onTrackChanged;
@@ -88,6 +90,7 @@ class AudioPlayerService extends ChangeNotifier {
   bool get isPlaying => _isPlaying;
   bool get shuffleEnabled => _shuffleEnabled;
   LoopMode get loopMode => _loopMode;
+  TrackRepeatMode get repeatMode => _repeatMode;
   ProcessingState get processingState => _processingState;
   String? get lastErrorMessage => _lastErrorMessage;
   bool get isBusy => _activeCommandAction != null;
@@ -136,6 +139,7 @@ class AudioPlayerService extends ChangeNotifier {
       'positionMillis': _position.inMilliseconds,
       'shuffleEnabled': _shuffleEnabled,
       'loopMode': _loopMode.name,
+      'repeatMode': _repeatMode.name,
       'isPlaying': _isPlaying,
     };
   }
@@ -148,6 +152,7 @@ class AudioPlayerService extends ChangeNotifier {
     required Duration position,
     required bool shuffleEnabled,
     required LoopMode loopMode,
+    TrackRepeatMode repeatMode = TrackRepeatMode.off,
   }) async {
     await _initialization;
     if (_disposed || tracks.isEmpty) {
@@ -177,7 +182,14 @@ class AudioPlayerService extends ChangeNotifier {
     );
     _currentIndex = resolvedIndex;
     _shuffleEnabled = shuffleEnabled;
-    _loopMode = loopMode;
+    _repeatMode =
+        repeatMode == TrackRepeatMode.off && loopMode == LoopMode.one
+            ? TrackRepeatMode.loop
+            : repeatMode;
+    _loopMode = switch (_repeatMode) {
+      TrackRepeatMode.off || TrackRepeatMode.once => LoopMode.off,
+      TrackRepeatMode.loop => LoopMode.one,
+    };
     await _player.setLoopMode(_loopMode);
     _isPlaying = false;
     _processingState = ProcessingState.idle;
@@ -752,31 +764,34 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   Future<void> toggleShuffle() async {
-    await _runPlayerCommand<void>(
+    if (_queue.isEmpty) {
+      return;
+    }
+
+    final previousQueue = List<MusicTrack>.from(_queue);
+    final previousQueueEntryIds = List<String>.from(_queueEntryIds);
+    final previousIndex = _currentIndex;
+    final previousLoadedTrackKey = _loadedTrackKey;
+    final previousShuffleEnabled = _shuffleEnabled;
+    final previousWasPlaying = _isPlaying;
+    final previousPosition = _position;
+
+    final shuffled = await _runPlayerCommand<bool>(
       'toggle shuffle',
       track: currentTrack,
       () async {
         if (_queue.length <= 1) {
-          _shuffleEnabled = !_shuffleEnabled;
-          _refreshShuffleOrder(
-            moveCurrentToFront: _shuffleEnabled,
-            reshuffleTail: _shuffleEnabled,
-          );
-          return;
+          _shuffleEnabled = true;
+          _refreshShuffleOrder(moveCurrentToFront: true, reshuffleTail: true);
+          return true;
         }
 
-        if (_shuffleEnabled) {
-          _shuffleEnabled = false;
-          _refreshShuffleOrder(
-            moveCurrentToFront: false,
-            reshuffleTail: false,
-          );
-          return;
+        final currentCacheKey = currentTrack?.cacheKey;
+        if (currentCacheKey == null) {
+          return false;
         }
 
         final resumePlayback = _isPlaying;
-        final currentTrack = this.currentTrack;
-        final currentCacheKey = currentTrack?.cacheKey;
         final queueEntries = List.generate(
           _queue.length,
           (index) => (
@@ -815,9 +830,29 @@ class AudioPlayerService extends ChangeNotifier {
           resumePlayback: resumePlayback,
           preservePosition: Duration.zero,
         );
+        return true;
       },
       failureMessage: 'Unable to toggle shuffle right now.',
     );
+
+    if (shuffled != true) {
+      _queue = previousQueue;
+      _queueEntryIds = previousQueueEntryIds;
+      _currentIndex = previousIndex;
+      _loadedTrackKey = previousLoadedTrackKey;
+      _shuffleEnabled = previousShuffleEnabled;
+      _refreshShuffleOrder(
+        moveCurrentToFront: _shuffleEnabled,
+        reshuffleTail: false,
+      );
+      await _restorePlaybackSnapshot(
+        reason: 'toggleShuffle-rollback',
+        resumePlayback: previousWasPlaying,
+        preservePosition: previousPosition,
+      );
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
+    }
   }
 
   Future<void> cycleLoopMode() async {
@@ -825,10 +860,14 @@ class AudioPlayerService extends ChangeNotifier {
       'change repeat mode',
       track: currentTrack,
       () async {
-        _loopMode = switch (_loopMode) {
-          LoopMode.off => LoopMode.all,
-          LoopMode.all => LoopMode.one,
-          LoopMode.one => LoopMode.off,
+        _repeatMode = switch (_repeatMode) {
+          TrackRepeatMode.off => TrackRepeatMode.once,
+          TrackRepeatMode.once => TrackRepeatMode.loop,
+          TrackRepeatMode.loop => TrackRepeatMode.off,
+        };
+        _loopMode = switch (_repeatMode) {
+          TrackRepeatMode.off || TrackRepeatMode.once => LoopMode.off,
+          TrackRepeatMode.loop => LoopMode.one,
         };
         await _player.setLoopMode(_loopMode);
       },
@@ -863,6 +902,9 @@ class AudioPlayerService extends ChangeNotifier {
 
     _subscriptions.add(
       _player.durationStream.listen((duration) {
+        if (_duration == duration) {
+          return;
+        }
         _duration = duration;
         _notifyUiListeners();
         _notifyBackgroundStateListeners();
@@ -912,6 +954,9 @@ class AudioPlayerService extends ChangeNotifier {
 
     _subscriptions.add(
       _player.playerStateStream.listen((state) {
+        final previousPlaying = _isPlaying;
+        final previousProcessingState = _processingState;
+        final previousLoadingTrackId = _loadingTrackId;
         _isPlaying = state.playing;
         _processingState = state.processingState;
 
@@ -927,8 +972,12 @@ class AudioPlayerService extends ChangeNotifier {
           unawaited(_handleTrackCompletion());
         }
 
-        _notifyUiListeners();
-        _notifyBackgroundStateListeners();
+        if (previousPlaying != _isPlaying ||
+            previousProcessingState != _processingState ||
+            previousLoadingTrackId != _loadingTrackId) {
+          _notifyUiListeners();
+          _notifyBackgroundStateListeners();
+        }
       }),
     );
 
@@ -941,19 +990,21 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> _handleTrackCompletion() async {
     try {
-      if (_loopMode == LoopMode.one && currentTrack != null) {
+      if (_repeatMode == TrackRepeatMode.once && currentTrack != null) {
+        final completedTrack = currentTrack!;
+        _repeatMode = TrackRepeatMode.off;
+        _loopMode = LoopMode.off;
+        await _player.setLoopMode(_loopMode);
         await _runPlayerCommand<void>(
-          'restart the current track',
-          track: currentTrack,
-          () async {
-            await _loadCurrentTrack(
-              autoPlay: true,
-              forceReload: true,
-              reason: 'completed-loop-one',
-            );
-          },
-          failureMessage: 'Unable to restart the current track.',
+          'repeat the current track once',
+          track: completedTrack,
+          () => _switchToQueueIndex(_currentIndex, reason: 'completed-repeat-once'),
+          failureMessage: 'Unable to repeat the current track once.',
         );
+        return;
+      }
+
+      if (_repeatMode == TrackRepeatMode.loop && currentTrack != null) {
         return;
       }
 
@@ -969,17 +1020,10 @@ class AudioPlayerService extends ChangeNotifier {
         return;
       }
 
-      _currentIndex = nextIndex;
       await _runPlayerCommand<void>(
         'continue to the next track',
-        track: currentTrack,
-        () async {
-          await _loadCurrentTrack(
-            autoPlay: true,
-            forceReload: true,
-            reason: 'completed-next',
-          );
-        },
+        track: _queue[nextIndex],
+        () => _switchToQueueIndex(nextIndex, reason: 'completed-next'),
         failureMessage: 'Unable to continue to the next track.',
       );
       _announceTrackChange();

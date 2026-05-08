@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'screens/root_shell.dart';
 import 'services/audio_player_service.dart';
 import 'services/library_service.dart';
+import 'services/sleep_timer_service.dart';
 import 'theme/crabify_theme.dart';
 
 class CrabifyApp extends StatefulWidget {
@@ -30,6 +31,10 @@ class _CrabifyAppState extends State<CrabifyApp> {
   bool _libraryInitializationStarted = false;
   bool _backgroundBootstrapStarted = false;
   String? _fatalBootstrapError;
+  late final SleepTimerService _sleepTimerService = SleepTimerService(
+    audioPlayerService: widget.audioPlayerService,
+    libraryService: widget.libraryService,
+  );
 
   @override
   void initState() {
@@ -104,6 +109,7 @@ class _CrabifyAppState extends State<CrabifyApp> {
 
   @override
   void dispose() {
+    _sleepTimerService.dispose();
     widget.audioPlayerService.dispose();
     widget.libraryService.dispose();
     super.dispose();
@@ -125,6 +131,9 @@ class _CrabifyAppState extends State<CrabifyApp> {
         ChangeNotifierProvider<LibraryService>.value(value: widget.libraryService),
         ChangeNotifierProvider<AudioPlayerService>.value(
           value: widget.audioPlayerService,
+        ),
+        ChangeNotifierProvider<SleepTimerService>.value(
+          value: _sleepTimerService,
         ),
       ],
       child: MaterialApp(
