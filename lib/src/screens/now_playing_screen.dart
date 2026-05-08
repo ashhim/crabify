@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 
-import '../models/music_track.dart';
 import '../services/audio_player_service.dart';
 import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
@@ -216,72 +214,76 @@ class NowPlayingScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-Row(
-  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-  children: <Widget>[
-    IconButton(
-      onPressed: busyForCurrentTrack ? null : audio.toggleShuffle,
-      icon: Icon(
-        Icons.shuffle_rounded,
-        color: audio.shuffleEnabled
-            ? CrabifyColors.accent
-            : CrabifyColors.textPrimary,
-      ),
-    ),
-    IconButton(
-      onPressed: busyForCurrentTrack ? null : audio.previous,
-      iconSize: 36,
-      icon: const Icon(Icons.skip_previous_rounded),
-    ),
-    IconButton.filled(
-      onPressed: busyForCurrentTrack ? null : audio.togglePlayback,
-      style: IconButton.styleFrom(
-        backgroundColor: CrabifyColors.accent,
-        foregroundColor: Colors.black,
-        fixedSize: const Size.square(72),
-      ),
-      icon: busyForCurrentTrack
-          ? const SizedBox.square(
-              dimension: 30,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.6,
-                color: Colors.black,
-              ),
-            )
-          : Icon(
-              audio.isPlaying
-                  ? Icons.pause_rounded
-                  : Icons.play_arrow_rounded,
-              size: 40,
-            ),
-    ),
-    IconButton(
-      onPressed: busyForCurrentTrack ? null : audio.next,
-      iconSize: 36,
-      icon: const Icon(Icons.skip_next_rounded),
-    ),
-    IconButton(
-      onPressed: busyForCurrentTrack ? null : audio.stop,
-      iconSize: 30,
-      icon: const Icon(Icons.stop_rounded),
-    ),
-    IconButton(
-      onPressed: busyForCurrentTrack ? null : audio.cycleLoopMode,
-      icon: Icon(
-        audio.loopMode == LoopMode.off
-            ? Icons.repeat_rounded
-            : audio.loopMode == LoopMode.one
-                ? Icons.repeat_one_rounded
-                : Icons.repeat_rounded,
-        color: audio.loopMode == LoopMode.off
-            ? CrabifyColors.textPrimary
-            : CrabifyColors.accent,
-      ),
-    ),
-  ],
-),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    IconButton(
+                      onPressed:
+                          busyForCurrentTrack ? null : audio.toggleShuffle,
+                      icon: Icon(
+                        Icons.shuffle_rounded,
+                        color:
+                            audio.shuffleEnabled
+                                ? CrabifyColors.accent
+                                : CrabifyColors.textPrimary,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: busyForCurrentTrack ? null : audio.previous,
+                      iconSize: 36,
+                      icon: const Icon(Icons.skip_previous_rounded),
+                    ),
+                    IconButton.filled(
+                      onPressed:
+                          busyForCurrentTrack ? null : audio.togglePlayback,
+                      style: IconButton.styleFrom(
+                        backgroundColor: CrabifyColors.accent,
+                        foregroundColor: Colors.black,
+                        fixedSize: const Size.square(72),
+                      ),
+                      icon:
+                          busyForCurrentTrack
+                              ? const SizedBox.square(
+                                dimension: 30,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.6,
+                                  color: Colors.black,
+                                ),
+                              )
+                              : Icon(
+                                audio.isPlaying
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                                size: 40,
+                              ),
+                    ),
+                    IconButton(
+                      onPressed: busyForCurrentTrack ? null : audio.next,
+                      iconSize: 36,
+                      icon: const Icon(Icons.skip_next_rounded),
+                    ),
+                    IconButton(
+                      onPressed: busyForCurrentTrack ? null : audio.stop,
+                      iconSize: 30,
+                      icon: const Icon(Icons.stop_rounded),
+                    ),
+                    IconButton(
+                      onPressed:
+                          busyForCurrentTrack ? null : audio.cycleLoopMode,
+                      icon: Icon(
+                        audio.repeatMode == TrackRepeatMode.loop
+                            ? Icons.repeat_one_rounded
+                            : Icons.repeat_rounded,
+                        color:
+                            audio.repeatMode == TrackRepeatMode.off
+                                ? CrabifyColors.textPrimary
+                                : CrabifyColors.accent,
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 20),
-                _QueuePreview(track: track),
+                const _QueueSection(),
               ],
             ),
           ),
@@ -313,15 +315,15 @@ Row(
   }
 }
 
-class _QueuePreview extends StatelessWidget {
-  const _QueuePreview({required this.track});
-
-  final MusicTrack track;
+class _QueueSection extends StatelessWidget {
+  const _QueueSection();
 
   @override
   Widget build(BuildContext context) {
     final audio = context.watch<AudioPlayerService>();
-    final upcoming = audio.queue.skip(audio.currentIndex + 1).take(3).toList();
+    final queue = audio.queue;
+    final queueHeight =
+        queue.isEmpty ? 76.0 : (queue.length * 78.0).clamp(120.0, 320.0);
 
     return Container(
       decoration: BoxDecoration(
@@ -334,38 +336,33 @@ class _QueuePreview extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Up next',
+            'Queue',
             style: Theme.of(
               context,
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 6),
           Text(
-            upcoming.isEmpty
-                ? 'Your queue ends with ${track.title}.'
-                : 'Drag tracks in the queue panel to rearrange the order.',
+            queue.length <= 1
+                ? 'Add more tracks to keep playback moving.'
+                : 'Long press and drag a track to reorder the queue.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: CrabifyColors.textSecondary,
             ),
           ),
           const SizedBox(height: 14),
-          if (upcoming.isEmpty)
+          if (queue.isEmpty)
             Text(
-              'No upcoming tracks',
+              'No queued tracks',
               style: Theme.of(
                 context,
               ).textTheme.bodyMedium?.copyWith(color: CrabifyColors.textMuted),
             )
           else
-            ...upcoming.map(
-              (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Text(
-                  '${item.title} • ${item.artistName}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: CrabifyColors.textPrimary,
-                  ),
-                ),
+            SizedBox(
+              height: queueHeight,
+              child: const _QueueList(
+                physics: BouncingScrollPhysics(),
               ),
             ),
         ],
@@ -396,77 +393,100 @@ class _QueueSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Tap to jump, drag to reorder, or remove tracks you no longer want.',
+                  'Tap to jump, long press and drag to reorder, or remove tracks you no longer want.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: CrabifyColors.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 16),
-                SizedBox(
+                const SizedBox(
                   height: 420,
-                  child: ReorderableListView.builder(
-                    itemCount: audio.queue.length,
-                    onReorder: (oldIndex, newIndex) {
-                      context.read<LibraryService>().moveQueueItem(
-                        oldIndex,
-                        newIndex,
-                      );
-                    },
-                    itemBuilder: (context, index) {
-                      final track = audio.queue[index];
-                      final active = index == audio.currentIndex;
-                      return ListTile(
-                        key: ValueKey(track.cacheKey),
-                        onTap:
-                            () => context.read<LibraryService>().playQueueItem(
-                              index,
-                            ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
-                        ),
-                        leading: CircleAvatar(
-                          backgroundColor:
-                              active
-                                  ? CrabifyColors.accent
-                                  : CrabifyColors.surfaceMuted,
-                          child: Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              color:
-                                  active
-                                      ? Colors.black
-                                      : CrabifyColors.textPrimary,
-                            ),
-                          ),
-                        ),
-                        title: Text(
-                          track.title,
-                          style: Theme.of(
-                            context,
-                          ).textTheme.titleMedium?.copyWith(
-                            color:
-                                active
-                                    ? CrabifyColors.accent
-                                    : CrabifyColors.textPrimary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        subtitle: Text(track.artistName),
-                        trailing: IconButton(
-                          onPressed:
-                              () => context
-                                  .read<LibraryService>()
-                                  .removeQueueItem(index),
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                      );
-                    },
+                  child: _QueueList(
+                    physics: BouncingScrollPhysics(),
                   ),
                 ),
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+}
+
+class _QueueList extends StatelessWidget {
+  const _QueueList({required this.physics});
+
+  final ScrollPhysics physics;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AudioPlayerService>(
+      builder: (context, audio, _) {
+        final queue = audio.queue;
+        return ReorderableListView.builder(
+          buildDefaultDragHandles: false,
+          physics: physics,
+          itemCount: queue.length,
+          onReorder: (oldIndex, newIndex) {
+            context.read<LibraryService>().moveQueueItem(oldIndex, newIndex);
+          },
+          itemBuilder: (context, index) {
+            final track = queue[index];
+            final active = index == audio.currentIndex;
+            final duplicateCount =
+                queue
+                    .take(index + 1)
+                    .where((entry) => entry.cacheKey == track.cacheKey)
+                    .length;
+            return ReorderableDelayedDragStartListener(
+              key: ValueKey('${track.cacheKey}::$duplicateCount'),
+              index: index,
+              child: ListTile(
+                onTap: () => context.read<LibraryService>().playQueueItem(index),
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: 2,
+                ),
+                leading: CircleAvatar(
+                  backgroundColor:
+                      active
+                          ? CrabifyColors.accent
+                          : CrabifyColors.surfaceMuted,
+                  child: Text(
+                    '${index + 1}',
+                    style: TextStyle(
+                      color:
+                          active ? Colors.black : CrabifyColors.textPrimary,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color:
+                        active
+                            ? CrabifyColors.accent
+                            : CrabifyColors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  track.artistName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: IconButton(
+                  onPressed:
+                      () => context.read<LibraryService>().removeQueueItem(index),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+            );
+          },
         );
       },
     );

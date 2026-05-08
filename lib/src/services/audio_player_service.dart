@@ -12,6 +12,7 @@ import 'audius_api_service.dart';
 import 'notification_artwork_service.dart';
 
 enum PlaybackViewState { idle, loading, playing, paused, stopped, error }
+enum TrackRepeatMode { off, once, loop }
 
 class AudioPlayerService extends ChangeNotifier {
   AudioPlayerService({required AudiusApiService audiusApiService})
@@ -37,6 +38,7 @@ class AudioPlayerService extends ChangeNotifier {
   bool _isPlaying = false;
   bool _shuffleEnabled = false;
   LoopMode _loopMode = LoopMode.off;
+  TrackRepeatMode _repeatMode = TrackRepeatMode.off;
   ProcessingState _processingState = ProcessingState.idle;
   String? _lastErrorMessage;
   String? _loadedTrackKey;
@@ -82,6 +84,7 @@ class AudioPlayerService extends ChangeNotifier {
   bool get isPlaying => _isPlaying;
   bool get shuffleEnabled => _shuffleEnabled;
   LoopMode get loopMode => _loopMode;
+  TrackRepeatMode get repeatMode => _repeatMode;
   ProcessingState get processingState => _processingState;
   String? get lastErrorMessage => _lastErrorMessage;
   bool get isBusy => _activeCommandAction != null;
@@ -129,6 +132,7 @@ class AudioPlayerService extends ChangeNotifier {
       'positionMillis': _position.inMilliseconds,
       'shuffleEnabled': _shuffleEnabled,
       'loopMode': _loopMode.name,
+      'repeatMode': _repeatMode.name,
       'isPlaying': _isPlaying,
     };
   }
@@ -140,6 +144,7 @@ class AudioPlayerService extends ChangeNotifier {
     required Duration position,
     required bool shuffleEnabled,
     required LoopMode loopMode,
+    TrackRepeatMode repeatMode = TrackRepeatMode.off,
   }) async {
     await _initialization;
     if (_disposed || tracks.isEmpty) {
@@ -159,6 +164,11 @@ class AudioPlayerService extends ChangeNotifier {
     _currentIndex = resolvedIndex;
     _shuffleEnabled = shuffleEnabled;
     _loopMode = loopMode;
+    _repeatMode =
+        repeatMode == TrackRepeatMode.off && loopMode == LoopMode.one
+            ? TrackRepeatMode.loop
+            : repeatMode;
+    await _player.setLoopMode(_loopMode);
     _isPlaying = false;
     _processingState = ProcessingState.idle;
     _loadedTrackKey = null;
@@ -202,18 +212,21 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
 
+    final effectiveQueue =
+        shuffle ? _shufflePreparedQueue(preparedQueue) : preparedQueue;
+
     final previousQueue = List<MusicTrack>.from(_queue);
     final previousIndex = _currentIndex;
     final previousLoadedTrackKey = _loadedTrackKey;
-    final selectedTrack = preparedQueue.tracks[preparedQueue.initialIndex];
+    final selectedTrack = effectiveQueue.tracks[effectiveQueue.initialIndex];
 
     final started = await _runPlayerCommand<bool>(
       'set queue',
       track: selectedTrack,
       markLoading: true,
       () async {
-        _queue = preparedQueue.tracks;
-        _currentIndex = preparedQueue.initialIndex;
+        _queue = effectiveQueue.tracks;
+        _currentIndex = effectiveQueue.initialIndex;
         _shuffleEnabled = shuffle;
         _refreshShuffleOrder(
           moveCurrentToFront: _shuffleEnabled,
@@ -251,6 +264,8 @@ class AudioPlayerService extends ChangeNotifier {
       'add to queue',
       track: track,
       () async {
+        final resumePlayback = _isPlaying;
+        final preservePosition = _position;
         if (_queue.isEmpty) {
           _queue = <MusicTrack>[track];
           _currentIndex = -1;
@@ -260,6 +275,13 @@ class AudioPlayerService extends ChangeNotifier {
           _queue.insert(insertIndex, track);
         }
         _refreshShuffleOrder();
+        if (_currentIndex >= 0 && currentTrack != null) {
+          await _syncQueueAndReload(
+            reason: 'addToQueue',
+            resumePlayback: resumePlayback,
+            preservePosition: preservePosition,
+          );
+        }
       },
       failureMessage: 'Unable to add ${track.title} to the queue.',
     );
@@ -281,6 +303,7 @@ class AudioPlayerService extends ChangeNotifier {
       () async {
         final wasCurrentTrack = index == _currentIndex;
         final shouldResume = _isPlaying;
+        final preservePosition = _position;
         _queue.removeAt(index);
 
         if (_queue.isEmpty) {
@@ -293,10 +316,22 @@ class AudioPlayerService extends ChangeNotifier {
 
         if (index < _currentIndex) {
           _currentIndex -= 1;
+          _refreshShuffleOrder();
+          await _syncQueueAndReload(
+            reason: 'removeAt',
+            resumePlayback: shouldResume,
+            preservePosition: preservePosition,
+          );
           return true;
         }
 
         if (!wasCurrentTrack) {
+          _refreshShuffleOrder();
+          await _syncQueueAndReload(
+            reason: 'removeAt',
+            resumePlayback: shouldResume,
+            preservePosition: preservePosition,
+          );
           return true;
         }
 
@@ -337,30 +372,45 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
 
-    await _runPlayerCommand<void>(
+    final previousQueue = List<MusicTrack>.from(_queue);
+    final previousIndex = _currentIndex;
+    final previousLoadedTrackKey = _loadedTrackKey;
+
+    final moved = await _runPlayerCommand<bool>(
       'reorder the queue',
       track: currentTrack,
+      markLoading: oldIndex == _currentIndex || adjustedIndex == _currentIndex,
       () async {
+        final resumePlayback = _isPlaying;
+        final preservePosition = _position;
         final track = _queue.removeAt(oldIndex);
         _queue.insert(adjustedIndex, track);
 
         if (_currentIndex == oldIndex) {
           _currentIndex = adjustedIndex;
-          return;
-        }
-
-        if (oldIndex < _currentIndex && adjustedIndex >= _currentIndex) {
+        } else if (oldIndex < _currentIndex && adjustedIndex >= _currentIndex) {
           _currentIndex -= 1;
-          return;
-        }
-
-        if (oldIndex > _currentIndex && adjustedIndex <= _currentIndex) {
+        } else if (oldIndex > _currentIndex && adjustedIndex <= _currentIndex) {
           _currentIndex += 1;
         }
         _refreshShuffleOrder();
+        await _syncQueueAndReload(
+          reason: 'moveQueueItem',
+          resumePlayback: resumePlayback,
+          preservePosition: preservePosition,
+        );
+        return true;
       },
       failureMessage: 'Unable to reorder the queue right now.',
     );
+
+    if (moved != true) {
+      _queue = previousQueue;
+      _currentIndex = previousIndex;
+      _loadedTrackKey = previousLoadedTrackKey;
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
+    }
   }
 
   Future<void> playFromQueue(int index) async {
@@ -552,16 +602,45 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> toggleShuffle() async {
     await _runPlayerCommand<void>(
-      'toggle shuffle',
+      'shuffle playback',
       track: currentTrack,
       () async {
-        _shuffleEnabled = !_shuffleEnabled;
+        if (_queue.length <= 1) {
+          _shuffleEnabled = true;
+          return;
+        }
+
+        final resumePlayback = _isPlaying;
+        final entries = List<MusicTrack>.from(_queue);
+        final currentTrack = this.currentTrack;
+        if (currentTrack == null) {
+          return;
+        }
+
+        final currentQueueIndex = _currentIndex.clamp(0, entries.length - 1);
+        final selectableIndexes =
+            List<int>.generate(entries.length, (index) => index)
+              ..remove(currentQueueIndex);
+        final nextStartIndex =
+            selectableIndexes[_random.nextInt(selectableIndexes.length)];
+        final nextStartTrack = entries.removeAt(nextStartIndex);
+        entries.shuffle(_random);
+        entries.insert(0, nextStartTrack);
+
+        _queue = entries;
+        _currentIndex = 0;
+        _shuffleEnabled = true;
         _refreshShuffleOrder(
-          moveCurrentToFront: _shuffleEnabled,
-          reshuffleTail: _shuffleEnabled,
+          moveCurrentToFront: true,
+          reshuffleTail: true,
+        );
+        await _syncQueueAndReload(
+          reason: 'toggleShuffle',
+          resumePlayback: resumePlayback,
+          preservePosition: Duration.zero,
         );
       },
-      failureMessage: 'Unable to toggle shuffle right now.',
+      failureMessage: 'Unable to shuffle playback right now.',
     );
   }
 
@@ -570,11 +649,16 @@ class AudioPlayerService extends ChangeNotifier {
       'change repeat mode',
       track: currentTrack,
       () async {
-        _loopMode = switch (_loopMode) {
-          LoopMode.off => LoopMode.all,
-          LoopMode.all => LoopMode.one,
-          LoopMode.one => LoopMode.off,
+        _repeatMode = switch (_repeatMode) {
+          TrackRepeatMode.off => TrackRepeatMode.once,
+          TrackRepeatMode.once => TrackRepeatMode.loop,
+          TrackRepeatMode.loop => TrackRepeatMode.off,
         };
+        _loopMode =
+            _repeatMode == TrackRepeatMode.loop
+                ? LoopMode.one
+                : LoopMode.off;
+        await _player.setLoopMode(_loopMode);
       },
       failureMessage: 'Unable to change repeat mode right now.',
     );
@@ -582,6 +666,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> _initialize() async {
     debugPrint('[Audio] Initializing player on $_platformLabel');
+    await _player.setLoopMode(_loopMode);
 
     _subscriptions.add(
       _player.positionStream.listen((position) {
@@ -684,7 +769,27 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> _handleTrackCompletion() async {
     try {
-      if (_loopMode == LoopMode.one && currentTrack != null) {
+      if (_repeatMode == TrackRepeatMode.once && currentTrack != null) {
+        final completedTrack = currentTrack!;
+        _repeatMode = TrackRepeatMode.off;
+        _loopMode = LoopMode.off;
+        await _player.setLoopMode(_loopMode);
+        await _runPlayerCommand<void>(
+          'repeat the current track once',
+          track: completedTrack,
+          () async {
+            await _loadCurrentTrack(
+              autoPlay: true,
+              forceReload: true,
+              reason: 'completed-repeat-once',
+            );
+          },
+          failureMessage: 'Unable to repeat the current track once.',
+        );
+        return;
+      }
+
+      if (_repeatMode == TrackRepeatMode.loop && currentTrack != null) {
         await _runPlayerCommand<void>(
           'restart the current track',
           track: currentTrack,
@@ -1161,33 +1266,22 @@ class AudioPlayerService extends ChangeNotifier {
     );
   }
 
-  int? _computeNextIndex({bool onCompletion = false}) {
-    if (_queue.isEmpty || _currentIndex < 0) {
-      return null;
+  _PreparedQueue _shufflePreparedQueue(_PreparedQueue preparedQueue) {
+    if (preparedQueue.tracks.length <= 1) {
+      return preparedQueue;
     }
 
-    if (_shuffleEnabled && _queue.length > 1) {
-      _refreshShuffleOrder();
-      final currentKey = currentTrack?.cacheKey;
-      final currentOrderIndex = _shuffleOrderKeys.indexOf(currentKey ?? '');
-      if (currentOrderIndex < 0) {
-        return _queueIndexForCacheKey(
-          _shuffleOrderKeys.isEmpty ? null : _shuffleOrderKeys.first,
-        );
-      }
+    final tracks = List<MusicTrack>.from(preparedQueue.tracks);
+    final currentIndex = preparedQueue.initialIndex.clamp(0, tracks.length - 1);
+    final selectedTrack = tracks.removeAt(currentIndex);
+    tracks.shuffle(_random);
+    tracks.insert(0, selectedTrack);
 
-      final nextOrderIndex = currentOrderIndex + 1;
-      if (nextOrderIndex < _shuffleOrderKeys.length) {
-        return _queueIndexForCacheKey(_shuffleOrderKeys[nextOrderIndex]);
-      }
+    return _PreparedQueue(tracks: tracks, initialIndex: 0);
+  }
 
-      if (_loopMode == LoopMode.all ||
-          onCompletion && _loopMode == LoopMode.all) {
-        return _queueIndexForCacheKey(
-          _shuffleOrderKeys.isEmpty ? null : _shuffleOrderKeys.first,
-        );
-      }
-
+  int? _computeNextIndex({bool onCompletion = false}) {
+    if (_queue.isEmpty || _currentIndex < 0) {
       return null;
     }
 
@@ -1209,19 +1303,6 @@ class AudioPlayerService extends ChangeNotifier {
       return null;
     }
 
-    if (_shuffleEnabled && _queue.length > 1) {
-      _refreshShuffleOrder();
-      final currentKey = currentTrack?.cacheKey;
-      final currentOrderIndex = _shuffleOrderKeys.indexOf(currentKey ?? '');
-      if (currentOrderIndex > 0) {
-        return _queueIndexForCacheKey(_shuffleOrderKeys[currentOrderIndex - 1]);
-      }
-      if (_loopMode == LoopMode.all && _shuffleOrderKeys.isNotEmpty) {
-        return _queueIndexForCacheKey(_shuffleOrderKeys.last);
-      }
-      return null;
-    }
-
     final sequentialPrevious = _currentIndex - 1;
     if (sequentialPrevious >= 0) {
       return sequentialPrevious;
@@ -1232,6 +1313,41 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     return null;
+  }
+
+  Future<void> _syncQueueAndReload({
+    required String reason,
+    required bool resumePlayback,
+    required Duration preservePosition,
+  }) async {
+    final track = currentTrack;
+    if (track == null) {
+      return;
+    }
+
+    await _loadCurrentTrack(
+      autoPlay: false,
+      forceReload: true,
+      reason: reason,
+    );
+
+    final targetPosition = _clampRestorePosition(
+      preservePosition,
+      _duration ?? track.duration,
+    );
+    if (targetPosition > Duration.zero) {
+      await _player.seek(targetPosition);
+      _position = targetPosition;
+    } else {
+      _position = Duration.zero;
+    }
+
+    if (resumePlayback) {
+      _startPlayback(currentTrack ?? track, reason: reason);
+    }
+
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
   }
 
   Future<void> _stopUnlocked({required bool clearLoadedTrack}) async {
@@ -1600,14 +1716,6 @@ class AudioPlayerService extends ChangeNotifier {
     _shuffleOrderKeys
       ..clear()
       ..addAll(nextOrder);
-  }
-
-  int? _queueIndexForCacheKey(String? cacheKey) {
-    if (cacheKey == null) {
-      return null;
-    }
-    final index = _queue.indexWhere((track) => track.cacheKey == cacheKey);
-    return index < 0 ? null : index;
   }
 
   String _cleanErrorText(String? raw) {
