@@ -25,7 +25,8 @@ class HomeScreen extends StatelessWidget {
                 ? library.recentTracks.take(4).toList()
                 : library.onlineTracks.take(4).toList();
         final playlists = library.playlists.take(6).toList();
-        final onlineTracks = library.onlineTracks;
+        final onlineTracks = _uniqueTracks(library.onlineTracks);
+        final showPlaylistsShelf = playlists.length > 2;
         final likedShelfTracks = library.likedTracks;
         final recentShelfTracks = library.recentTracks;
         final offlineShelfTracks = library.localTracks;
@@ -107,49 +108,51 @@ class HomeScreen extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 28),
-                  _SectionHeader(
-                    title: 'Crabify playlists',
-                    actionLabel: 'See all',
-                    onAction: () {
-                      if (playlists.isEmpty) {
-                        return;
-                      }
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder:
-                              (_) => CollectionDetailScreen(
-                                collection: playlists.first,
-                              ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final cardWidth = _responsiveCardWidth(
-                        constraints.maxWidth,
-                      );
-                      final sectionHeight = cardWidth + 92;
-                      return SizedBox(
-                        height: sectionHeight,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemBuilder: (context, index) {
-                            final collection = playlists[index];
-                            return _PlaylistCard(
-                              collection: collection,
-                              width: cardWidth,
-                            );
-                          },
-                          separatorBuilder:
-                              (_, __) => const SizedBox(width: 14),
-                          itemCount: playlists.length,
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 28),
+                  if (showPlaylistsShelf) ...<Widget>[
+                    _SectionHeader(
+                      title: 'Crabify playlists',
+                      actionLabel: 'See all',
+                      onAction: () {
+                        if (playlists.isEmpty) {
+                          return;
+                        }
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder:
+                                (_) => CollectionDetailScreen(
+                                  collection: playlists.first,
+                                ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cardWidth = _responsiveCardWidth(
+                          constraints.maxWidth,
+                        );
+                        final sectionHeight = cardWidth + 92;
+                        return SizedBox(
+                          height: sectionHeight,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemBuilder: (context, index) {
+                              final collection = playlists[index];
+                              return _PlaylistCard(
+                                collection: collection,
+                                width: cardWidth,
+                              );
+                            },
+                            separatorBuilder:
+                                (_, __) => const SizedBox(width: 14),
+                            itemCount: playlists.length,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 28),
+                  ],
                   _SectionHeader(title: 'Fresh from Crabify'),
                   const SizedBox(height: 14),
                   LayoutBuilder(
@@ -162,12 +165,12 @@ class HomeScreen extends StatelessWidget {
                         height: sectionHeight,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
+                          itemCount: onlineTracks.length,
                           itemBuilder: (context, index) {
                             if (onlineTracks.isEmpty) {
                               return const SizedBox.shrink();
                             }
-                            final track =
-                                onlineTracks[index % onlineTracks.length];
+                            final track = onlineTracks[index];
                             return Padding(
                               padding: const EdgeInsets.only(right: 14),
                               child: _TrackCard(
@@ -268,6 +271,14 @@ class HomeScreen extends StatelessWidget {
       },
     );
   }
+}
+
+List<MusicTrack> _uniqueTracks(List<MusicTrack> tracks) {
+  final unique = <String, MusicTrack>{};
+  for (final track in tracks) {
+    unique.putIfAbsent(track.cacheKey, () => track);
+  }
+  return unique.values.toList();
 }
 
 double _responsiveCardWidth(double availableWidth) {

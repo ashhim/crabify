@@ -49,6 +49,7 @@ class LibraryService extends ChangeNotifier {
   final DeviceMediaScannerService _deviceMediaScannerService;
   final Random _random = Random();
   Timer? _playerSessionPersistDebounce;
+  bool _starterPlaylistsInitialized = false;
 
   bool isLoading = true;
   bool usingFallbackCatalog = true;
@@ -255,7 +256,7 @@ class LibraryService extends ChangeNotifier {
 
     try {
       final freshTracks = await _audiusApiService.fetchTrendingTracks(
-        limit: 32,
+        limit: 64,
       );
       onlineTracks = freshTracks;
       _applyTrackOverrides();
@@ -286,10 +287,7 @@ class LibraryService extends ChangeNotifier {
         onlineError =
             'Audius refresh failed, so Crabify kept the last available online tracks.';
       }
-      if (playlists.isEmpty) {
-        playlists = DemoCatalog.starterPlaylists(onlineTracks);
-        _refreshPlaylistCoverArtwork();
-      }
+      _syncStarterPlaylistsWithOnlineTracks();
       _syncArtistPlaylists();
       _refreshArtistCoverArtwork();
     }
@@ -2444,7 +2442,7 @@ class LibraryService extends ChangeNotifier {
             .toList();
 
     final shouldRefreshStarterPlaylists =
-        playlists.isEmpty ||
+        (!_starterPlaylistsInitialized && playlists.isEmpty) ||
         existingStarterPlaylists.any(_playlistReferencesMissingTracks);
 
     if (!shouldRefreshStarterPlaylists) {
@@ -2460,6 +2458,7 @@ class LibraryService extends ChangeNotifier {
             .toList();
 
     playlists = <MusicCollection>[...starterPlaylists, ...customPlaylists];
+    _starterPlaylistsInitialized = true;
   }
 
   bool _playlistReferencesMissingTracks(MusicCollection playlist) {
@@ -2547,6 +2546,8 @@ class LibraryService extends ChangeNotifier {
             ),
       );
 
+    _starterPlaylistsInitialized =
+        state['starterPlaylistsInitialized'] as bool? ?? playlists.isNotEmpty;
     selectedSearchTag =
         state['selectedSearchTag'] as String? ?? selectedSearchTag;
     selectedLibraryFilter =
@@ -2570,6 +2571,7 @@ class LibraryService extends ChangeNotifier {
       'trackOverrides': _trackOverrides.map(
         (key, track) => MapEntry(key, track.toJson()),
       ),
+      'starterPlaylistsInitialized': _starterPlaylistsInitialized,
       'selectedSearchTag': selectedSearchTag,
       'selectedLibraryFilter': selectedLibraryFilter,
     });

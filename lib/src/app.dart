@@ -9,81 +9,38 @@ import 'package:provider/provider.dart';
 
 import 'screens/root_shell.dart';
 import 'services/audio_player_service.dart';
-import 'services/audius_api_service.dart';
-import 'services/device_media_scanner_service.dart';
-import 'services/download_service.dart';
 import 'services/library_service.dart';
-import 'services/local_storage_service.dart';
 import 'theme/crabify_theme.dart';
 
 class CrabifyApp extends StatefulWidget {
-  const CrabifyApp({super.key});
+  const CrabifyApp({
+    super.key,
+    required this.libraryService,
+    required this.audioPlayerService,
+  });
+
+  final LibraryService libraryService;
+  final AudioPlayerService audioPlayerService;
 
   @override
   State<CrabifyApp> createState() => _CrabifyAppState();
 }
 
 class _CrabifyAppState extends State<CrabifyApp> {
-  bool _bootstrapStarted = false;
-  bool _backgroundBootstrapComplete = !(Platform.isAndroid || Platform.isIOS);
-  LibraryService? _libraryService;
-  AudioPlayerService? _audioPlayerService;
+  bool _libraryInitializationStarted = false;
+  bool _backgroundBootstrapStarted = false;
   String? _fatalBootstrapError;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_bootstrap());
-  }
-
-  Future<void> _bootstrap() async {
-    if (_bootstrapStarted) {
-      return;
+    if (!_libraryInitializationStarted) {
+      _libraryInitializationStarted = true;
+      unawaited(_initializeLibrary(widget.libraryService));
     }
-    _bootstrapStarted = true;
-
-    try {
-      debugPrint('[Startup] Creating Crabify services.');
-      final localStorageService = await LocalStorageService.create();
-      final audiusApiService = AudiusApiService();
-      final audioPlayerService = AudioPlayerService(
-        audiusApiService: audiusApiService,
-      );
-      final downloadService = DownloadService(
-        storageService: localStorageService,
-      );
-      final deviceMediaScannerService = DeviceMediaScannerService();
-      final libraryService = LibraryService(
-        audiusApiService: audiusApiService,
-        localStorageService: localStorageService,
-        downloadService: downloadService,
-        audioPlayerService: audioPlayerService,
-        deviceMediaScannerService: deviceMediaScannerService,
-      );
-
-      if (!mounted) {
-        audioPlayerService.dispose();
-        libraryService.dispose();
-        return;
-      }
-
-      setState(() {
-        _audioPlayerService = audioPlayerService;
-        _libraryService = libraryService;
-      });
-
-      debugPrint('[Startup] Crabify root shell is ready to render.');
-      unawaited(_initializeLibrary(libraryService));
-      unawaited(_initializeBackgroundAudio(audioPlayerService));
-    } catch (error, stackTrace) {
-      debugPrint('[Startup] Service bootstrap failed: $error');
-      debugPrint('$stackTrace');
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _fatalBootstrapError = error.toString();
-      });
+    if (!_backgroundBootstrapStarted) {
+      _backgroundBootstrapStarted = true;
+      unawaited(_initializeBackgroundAudio(widget.audioPlayerService));
     }
   }
 
@@ -105,11 +62,6 @@ class _CrabifyAppState extends State<CrabifyApp> {
     AudioPlayerService audioPlayerService,
   ) async {
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
-      if (mounted) {
-        setState(() {
-          _backgroundBootstrapComplete = true;
-        });
-      }
       return;
     }
 
@@ -131,12 +83,6 @@ class _CrabifyAppState extends State<CrabifyApp> {
       audioPlayerService.reportError(
         'Crabify background playback controls are unavailable right now.',
       );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _backgroundBootstrapComplete = true;
-        });
-      }
     }
   }
 
@@ -150,7 +96,7 @@ class _CrabifyAppState extends State<CrabifyApp> {
     final result = await Permission.notification.request();
     debugPrint('[Audio] Notification permission status: $result');
     if (!result.isGranted && !result.isLimited) {
-      _audioPlayerService?.reportError(
+      widget.audioPlayerService.reportError(
         'Enable Android notifications for Crabify to use media controls on the lock screen and in the notification tray.',
       );
     }
@@ -158,41 +104,9 @@ class _CrabifyAppState extends State<CrabifyApp> {
 
   @override
   void dispose() {
-    _audioPlayerService?.dispose();
-    _libraryService?.dispose();
+    widget.audioPlayerService.dispose();
+    widget.libraryService.dispose();
     super.dispose();
-  }
-
-  Widget _buildHome() {
-    if (_fatalBootstrapError != null) {
-      return CrabifyStartupErrorView(message: _fatalBootstrapError!);
-    }
-
-    final libraryService = _libraryService;
-    final audioPlayerService = _audioPlayerService;
-    if (libraryService == null ||
-        audioPlayerService == null ||
-        !_backgroundBootstrapComplete) {
-      return MaterialApp(
-        title: 'Crabify',
-        debugShowCheckedModeBanner: false,
-        theme: CrabifyTheme.dark(),
-        home: const CrabifyBootstrapView(),
-      );
-    }
-
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider<LibraryService>.value(value: libraryService),
-        ChangeNotifierProvider<AudioPlayerService>.value(value: audioPlayerService),
-      ],
-      child: MaterialApp(
-        title: 'Crabify',
-        debugShowCheckedModeBanner: false,
-        theme: CrabifyTheme.dark(),
-        home: const RootShell(),
-      ),
-    );
   }
 
   @override
@@ -206,130 +120,20 @@ class _CrabifyAppState extends State<CrabifyApp> {
       );
     }
 
-    return _buildHome();
-  }
-}
-
-class CrabifyBootstrapView extends StatefulWidget {
-  const CrabifyBootstrapView({super.key});
-
-  @override
-  State<CrabifyBootstrapView> createState() => _CrabifyBootstrapViewState();
-}
-
-class _CrabifyBootstrapViewState extends State<CrabifyBootstrapView>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final screenSize = MediaQuery.sizeOf(context);
-    final logoWidth = (screenSize.shortestSide * 0.30).clamp(92.0, 132.0);
-
-    return Scaffold(
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[
-              CrabifyColors.background,
-              CrabifyColors.topBar,
-              CrabifyColors.background,
-            ],
-          ),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<LibraryService>.value(value: widget.libraryService),
+        ChangeNotifierProvider<AudioPlayerService>.value(
+          value: widget.audioPlayerService,
         ),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: SizedBox(
-              width: logoWidth,
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (context, _) {
-                  return Stack(
-                    alignment: Alignment.center,
-                    children: <Widget>[
-                      Image.asset(
-                        'assets/logo.png',
-                        fit: BoxFit.contain,
-                        filterQuality: FilterQuality.high,
-                        isAntiAlias: true,
-                      ),
-                      ShaderMask(
-                        blendMode: BlendMode.srcATop,
-                        shaderCallback: (bounds) {
-                          final sweepCenter =
-                              (bounds.width * 1.8 * _controller.value) -
-                              (bounds.width * 0.4);
-                          return LinearGradient(
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            colors: <Color>[
-                              Colors.transparent,
-                              Colors.transparent,
-                              CrabifyColors.accent.withValues(alpha: 0.10),
-                              CrabifyColors.accent.withValues(alpha: 0.28),
-                              CrabifyColors.accent.withValues(alpha: 0.10),
-                              Colors.transparent,
-                              Colors.transparent,
-                            ],
-                            stops: const <double>[
-                              0.0,
-                              0.34,
-                              0.46,
-                              0.50,
-                              0.54,
-                              0.66,
-                              1.0,
-                            ],
-                            transform: _HorizontalShimmerTransform(
-                              slideX: sweepCenter,
-                            ),
-                          ).createShader(bounds);
-                        },
-                        child: Image.asset(
-                          'assets/logo.png',
-                          fit: BoxFit.contain,
-                          filterQuality: FilterQuality.high,
-                          isAntiAlias: true,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
+      ],
+      child: MaterialApp(
+        title: 'Crabify',
+        debugShowCheckedModeBanner: false,
+        theme: CrabifyTheme.dark(),
+        home: const RootShell(),
       ),
     );
-  }
-}
-
-class _HorizontalShimmerTransform extends GradientTransform {
-  const _HorizontalShimmerTransform({required this.slideX});
-
-  final double slideX;
-
-  @override
-  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
-    return Matrix4.translationValues(slideX - bounds.width, 0, 0);
   }
 }
 

@@ -32,56 +32,65 @@ class _RootShellState extends State<RootShell> {
       const LikedSongsScreen(),
     ];
 
-    return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: pages),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Consumer<AudioPlayerService>(
-            builder: (context, audio, _) {
-              return MiniPlayer(
-                audioPlayerService: audio,
-                onOpenPlayer: _openNowPlaying,
-              );
-            },
-          ),
-          Container(
-            color: CrabifyColors.topBar,
-            padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
-            child: SafeArea(
-              top: false,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: <Widget>[
-                  _NavItem(
-                    icon: FontAwesomeIcons.house,
-                    label: 'Home',
-                    active: _currentIndex == 0,
-                    onTap: () => setState(() => _currentIndex = 0),
-                  ),
-                  _NavItem(
-                    icon: FontAwesomeIcons.magnifyingGlass,
-                    label: 'Search',
-                    active: _currentIndex == 1,
-                    onTap: () => setState(() => _currentIndex = 1),
-                  ),
-                  _NavItem(
-                    icon: FontAwesomeIcons.bookOpen,
-                    label: 'Library',
-                    active: _currentIndex == 2,
-                    onTap: () => setState(() => _currentIndex = 2),
-                  ),
-                  _NavItem(
-                    icon: FontAwesomeIcons.solidHeart,
-                    label: 'Liked',
-                    active: _currentIndex == 3,
-                    onTap: () => setState(() => _currentIndex = 3),
-                  ),
-                ],
+    return PopScope(
+      canPop: _currentIndex == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop || _currentIndex == 0) {
+          return;
+        }
+        setState(() => _currentIndex = 0);
+      },
+      child: Scaffold(
+        body: IndexedStack(index: _currentIndex, children: pages),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Consumer<AudioPlayerService>(
+              builder: (context, audio, _) {
+                return MiniPlayer(
+                  audioPlayerService: audio,
+                  onOpenPlayer: _openNowPlaying,
+                );
+              },
+            ),
+            Container(
+              color: CrabifyColors.topBar,
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: <Widget>[
+                    _NavItem(
+                      icon: FontAwesomeIcons.house,
+                      label: 'Home',
+                      active: _currentIndex == 0,
+                      onTap: () => setState(() => _currentIndex = 0),
+                    ),
+                    _NavItem(
+                      icon: FontAwesomeIcons.magnifyingGlass,
+                      label: 'Search',
+                      active: _currentIndex == 1,
+                      onTap: () => setState(() => _currentIndex = 1),
+                    ),
+                    _NavItem(
+                      icon: FontAwesomeIcons.bookOpen,
+                      label: 'Library',
+                      active: _currentIndex == 2,
+                      onTap: () => setState(() => _currentIndex = 2),
+                    ),
+                    _NavItem(
+                      icon: FontAwesomeIcons.solidHeart,
+                      label: 'Liked',
+                      active: _currentIndex == 3,
+                      onTap: () => setState(() => _currentIndex = 3),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
