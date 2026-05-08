@@ -350,7 +350,7 @@ class _QueueSection extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             hasUpcomingTracks
-                ? 'Tap a track to jump to it. Drag the handle to reorder in real time.'
+                ? 'Tap a track to jump to it. Long press and drag to reorder in real time.'
                 : 'Your queue currently ends with ${track.title}.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: CrabifyColors.textSecondary,
@@ -379,11 +379,14 @@ class _QueueSection extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final item = queue[index];
                   final active = index == audio.currentIndex;
-                  return _QueueListTile(
+                  return ReorderableDelayedDragStartListener(
                     key: ValueKey(audio.queueEntryIdAt(index)),
-                    track: item,
                     index: index,
-                    active: active,
+                    child: _QueueListTile(
+                      track: item,
+                      index: index,
+                      active: active,
+                    ),
                   );
                 },
               ),
@@ -416,7 +419,7 @@ class _QueueSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Tap to jump, drag to reorder, or remove tracks you no longer want.',
+                  'Tap to jump, long press and drag to reorder, or remove tracks you no longer want.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: CrabifyColors.textSecondary,
                   ),
@@ -438,11 +441,14 @@ class _QueueSheet extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final track = audio.queue[index];
                       final active = index == audio.currentIndex;
-                      return _QueueListTile(
+                      return ReorderableDelayedDragStartListener(
                         key: ValueKey(audio.queueEntryIdAt(index)),
-                        track: track,
                         index: index,
-                        active: active,
+                        child: _QueueListTile(
+                          track: track,
+                          index: index,
+                          active: active,
+                        ),
                       );
                     },
                   ),
@@ -458,7 +464,6 @@ class _QueueSheet extends StatelessWidget {
 
 class _QueueListTile extends StatelessWidget {
   const _QueueListTile({
-    super.key,
     required this.track,
     required this.index,
     required this.active,
@@ -506,13 +511,6 @@ class _QueueListTile extends StatelessWidget {
             tooltip: 'Remove from queue',
             onPressed: () => context.read<LibraryService>().removeQueueItem(index),
             icon: const Icon(Icons.close_rounded),
-          ),
-          ReorderableDragStartListener(
-            index: index,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Icon(Icons.drag_handle_rounded),
-            ),
           ),
         ],
       ),
