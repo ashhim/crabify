@@ -216,76 +216,70 @@ class NowPlayingScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: <Widget>[
-                    IconButton(
-                      onPressed:
-                          busyForCurrentTrack ? null : audio.toggleShuffle,
-                      icon: Icon(
-                        Icons.shuffle_rounded,
-                        color:
-                            audio.shuffleEnabled
-                                ? CrabifyColors.accent
-                                : CrabifyColors.textPrimary,
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: busyForCurrentTrack ? null : audio.previous,
-                      iconSize: 36,
-                      icon: const Icon(Icons.skip_previous_rounded),
-                    ),
-                    IconButton.filled(
-                      onPressed:
-                          busyForCurrentTrack ? null : audio.togglePlayback,
-                      style: IconButton.styleFrom(
-                        backgroundColor: CrabifyColors.accent,
-                        foregroundColor: Colors.black,
-                        fixedSize: const Size.square(72),
-                      ),
-                      icon:
-                          busyForCurrentTrack
-                              ? const SizedBox.square(
-                                dimension: 30,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.6,
-                                  color: Colors.black,
-                                ),
-                              )
-                              : Icon(
-                                audio.isPlaying
-                                    ? Icons.pause_rounded
-                                    : Icons.play_arrow_rounded,
-                                size: 40,
-                              ),
-                    ),
-                    IconButton(
-                      onPressed: busyForCurrentTrack ? null : audio.stop,
-                      iconSize: 30,
-                      icon: const Icon(Icons.stop_rounded),
-                    ),
-                    IconButton(
-                      onPressed: busyForCurrentTrack ? null : audio.next,
-                      iconSize: 36,
-                      icon: const Icon(Icons.skip_next_rounded),
-                    ),
-                    IconButton(
-                      onPressed:
-                          busyForCurrentTrack ? null : audio.cycleLoopMode,
-                      icon: Icon(
-                        audio.loopMode == LoopMode.off
-                            ? Icons.repeat_rounded
-                            : audio.loopMode == LoopMode.one
-                            ? Icons.repeat_one_rounded
-                            : Icons.repeat_rounded,
-                        color:
-                            audio.loopMode == LoopMode.off
-                                ? CrabifyColors.textPrimary
-                                : CrabifyColors.accent,
-                      ),
-                    ),
-                  ],
-                ),
+Row(
+  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  children: <Widget>[
+    IconButton(
+      onPressed: busyForCurrentTrack ? null : audio.toggleShuffle,
+      icon: Icon(
+        Icons.shuffle_rounded,
+        color: audio.shuffleEnabled
+            ? CrabifyColors.accent
+            : CrabifyColors.textPrimary,
+      ),
+    ),
+    IconButton(
+      onPressed: busyForCurrentTrack ? null : audio.previous,
+      iconSize: 36,
+      icon: const Icon(Icons.skip_previous_rounded),
+    ),
+    IconButton.filled(
+      onPressed: busyForCurrentTrack ? null : audio.togglePlayback,
+      style: IconButton.styleFrom(
+        backgroundColor: CrabifyColors.accent,
+        foregroundColor: Colors.black,
+        fixedSize: const Size.square(72),
+      ),
+      icon: busyForCurrentTrack
+          ? const SizedBox.square(
+              dimension: 30,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.6,
+                color: Colors.black,
+              ),
+            )
+          : Icon(
+              audio.isPlaying
+                  ? Icons.pause_rounded
+                  : Icons.play_arrow_rounded,
+              size: 40,
+            ),
+    ),
+    IconButton(
+      onPressed: busyForCurrentTrack ? null : audio.next,
+      iconSize: 36,
+      icon: const Icon(Icons.skip_next_rounded),
+    ),
+    IconButton(
+      onPressed: busyForCurrentTrack ? null : audio.stop,
+      iconSize: 30,
+      icon: const Icon(Icons.stop_rounded),
+    ),
+    IconButton(
+      onPressed: busyForCurrentTrack ? null : audio.cycleLoopMode,
+      icon: Icon(
+        audio.loopMode == LoopMode.off
+            ? Icons.repeat_rounded
+            : audio.loopMode == LoopMode.one
+                ? Icons.repeat_one_rounded
+                : Icons.repeat_rounded,
+        color: audio.loopMode == LoopMode.off
+            ? CrabifyColors.textPrimary
+            : CrabifyColors.accent,
+      ),
+    ),
+  ],
+),
                 const SizedBox(height: 20),
                 _QueuePreview(track: track),
               ],

@@ -210,13 +210,36 @@ class _CrabifyAppState extends State<CrabifyApp> {
   }
 }
 
-class CrabifyBootstrapView extends StatelessWidget {
+class CrabifyBootstrapView extends StatefulWidget {
   const CrabifyBootstrapView({super.key});
+
+  @override
+  State<CrabifyBootstrapView> createState() => _CrabifyBootstrapViewState();
+}
+
+class _CrabifyBootstrapViewState extends State<CrabifyBootstrapView>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
-    final logoWidth = (screenSize.shortestSide * 0.42).clamp(120.0, 168.0);
+    final logoWidth = (screenSize.shortestSide * 0.30).clamp(92.0, 132.0);
 
     return Scaffold(
       body: DecoratedBox(
@@ -236,17 +259,77 @@ class CrabifyBootstrapView extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: SizedBox(
               width: logoWidth,
-              child: Image.asset(
-                'assets/logo.png',
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
-                isAntiAlias: true,
+              child: AnimatedBuilder(
+                animation: _controller,
+                builder: (context, _) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: <Widget>[
+                      Image.asset(
+                        'assets/logo.png',
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        isAntiAlias: true,
+                      ),
+                      ShaderMask(
+                        blendMode: BlendMode.srcATop,
+                        shaderCallback: (bounds) {
+                          final sweepCenter =
+                              (bounds.width * 1.8 * _controller.value) -
+                              (bounds.width * 0.4);
+                          return LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: <Color>[
+                              Colors.transparent,
+                              Colors.transparent,
+                              CrabifyColors.accent.withValues(alpha: 0.10),
+                              CrabifyColors.accent.withValues(alpha: 0.28),
+                              CrabifyColors.accent.withValues(alpha: 0.10),
+                              Colors.transparent,
+                              Colors.transparent,
+                            ],
+                            stops: const <double>[
+                              0.0,
+                              0.34,
+                              0.46,
+                              0.50,
+                              0.54,
+                              0.66,
+                              1.0,
+                            ],
+                            transform: _HorizontalShimmerTransform(
+                              slideX: sweepCenter,
+                            ),
+                          ).createShader(bounds);
+                        },
+                        child: Image.asset(
+                          'assets/logo.png',
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                          isAntiAlias: true,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
         ),
       ),
     );
+  }
+}
+
+class _HorizontalShimmerTransform extends GradientTransform {
+  const _HorizontalShimmerTransform({required this.slideX});
+
+  final double slideX;
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    return Matrix4.translationValues(slideX - bounds.width, 0, 0);
   }
 }
 
