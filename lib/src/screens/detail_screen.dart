@@ -110,6 +110,8 @@ class CollectionDetailScreen extends StatelessWidget {
                                     : library.playTracks(
                                       tracks,
                                       selectedTrackId: tracks.first.id,
+                                      selectedTrackCacheKey:
+                                          tracks.first.cacheKey,
                                     ),
                     icon: const Icon(Icons.play_arrow_rounded),
                   ),
@@ -610,6 +612,7 @@ class ArtistDetailScreen extends StatelessWidget {
                             : () => library.playTracks(
                               tracks,
                               selectedTrackId: tracks.first.id,
+                              selectedTrackCacheKey: tracks.first.cacheKey,
                             ),
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: const Text('Play'),

@@ -445,6 +445,7 @@ class _PlaylistCard extends StatelessWidget {
                             : () => library.playTracks(
                               tracks,
                               selectedTrackId: tracks.first.id,
+                              selectedTrackCacheKey: tracks.first.cacheKey,
                             ),
                     borderRadius: BorderRadius.circular(24),
                     child: Container(

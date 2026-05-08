@@ -30,6 +30,7 @@ class AudioPlayerService extends ChangeNotifier {
   Future<void> _commandChain = Future<void>.value();
 
   List<MusicTrack> _queue = <MusicTrack>[];
+  List<String> _queueEntryIds = <String>[];
   int _currentIndex = -1;
   Duration _position = Duration.zero;
   Duration _bufferedPosition = Duration.zero;
@@ -56,6 +57,7 @@ class AudioPlayerService extends ChangeNotifier {
   Duration _lastUiNotifiedPosition = Duration.zero;
   Duration _lastUiNotifiedBufferedPosition = Duration.zero;
   Duration _lastBackgroundNotifiedPosition = Duration.zero;
+  int _queueEntrySeed = 0;
 
   static const Duration _loadTimeout = Duration(seconds: 12);
   static const Duration _uiProgressNotificationInterval = Duration(
@@ -71,6 +73,10 @@ class AudioPlayerService extends ChangeNotifier {
   void Function(MusicTrack? track)? onTrackChanged;
 
   List<MusicTrack> get queue => List<MusicTrack>.unmodifiable(_queue);
+  String queueEntryIdAt(int index) =>
+      index >= 0 && index < _queueEntryIds.length
+          ? _queueEntryIds[index]
+          : 'queue-entry-$index';
   MusicTrack? get currentTrack =>
       _currentIndex < 0 || _currentIndex >= _queue.length
           ? null
@@ -125,6 +131,7 @@ class AudioPlayerService extends ChangeNotifier {
     return <String, dynamic>{
       'queue': _queue.map((track) => track.toJson()).toList(),
       'currentTrackId': track.id,
+      'currentTrackCacheKey': track.cacheKey,
       'currentIndex': _currentIndex,
       'positionMillis': _position.inMilliseconds,
       'shuffleEnabled': _shuffleEnabled,
@@ -136,6 +143,7 @@ class AudioPlayerService extends ChangeNotifier {
   Future<void> restoreSession({
     required List<MusicTrack> tracks,
     required String? currentTrackId,
+    required String? currentTrackCacheKey,
     required int? currentIndex,
     required Duration position,
     required bool shuffleEnabled,
@@ -147,7 +155,14 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     var resolvedIndex = currentIndex ?? 0;
-    if (currentTrackId != null) {
+    if (currentTrackCacheKey != null) {
+      final locatedIndex = tracks.indexWhere(
+        (track) => track.cacheKey == currentTrackCacheKey,
+      );
+      if (locatedIndex >= 0) {
+        resolvedIndex = locatedIndex;
+      }
+    } else if (currentTrackId != null) {
       final locatedIndex = tracks.indexWhere((track) => track.id == currentTrackId);
       if (locatedIndex >= 0) {
         resolvedIndex = locatedIndex;
@@ -156,6 +171,10 @@ class AudioPlayerService extends ChangeNotifier {
     resolvedIndex = resolvedIndex.clamp(0, tracks.length - 1);
 
     _queue = List<MusicTrack>.from(tracks);
+    _queueEntryIds = List<String>.generate(
+      tracks.length,
+      (index) => _newQueueEntryId(tracks[index]),
+    );
     _currentIndex = resolvedIndex;
     _shuffleEnabled = shuffleEnabled;
     _loopMode = loopMode;
@@ -205,8 +224,12 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final previousQueue = List<MusicTrack>.from(_queue);
+    final previousQueueEntryIds = List<String>.from(_queueEntryIds);
     final previousIndex = _currentIndex;
     final previousLoadedTrackKey = _loadedTrackKey;
+    final previousShuffleEnabled = _shuffleEnabled;
+    final previousWasPlaying = _isPlaying;
+    final previousPosition = _position;
     final selectedTrack = preparedQueue.tracks[preparedQueue.initialIndex];
 
     final started = await _runPlayerCommand<bool>(
@@ -215,6 +238,7 @@ class AudioPlayerService extends ChangeNotifier {
       markLoading: true,
       () async {
         _queue = preparedQueue.tracks;
+        _queueEntryIds = preparedQueue.entryIds;
         _currentIndex = preparedQueue.initialIndex;
         _shuffleEnabled = shuffle;
         _refreshShuffleOrder(
@@ -237,8 +261,19 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     _queue = previousQueue;
+    _queueEntryIds = previousQueueEntryIds;
     _currentIndex = previousIndex;
     _loadedTrackKey = previousLoadedTrackKey;
+    _shuffleEnabled = previousShuffleEnabled;
+    _refreshShuffleOrder(
+      moveCurrentToFront: _shuffleEnabled,
+      reshuffleTail: false,
+    );
+    await _restorePlaybackSnapshot(
+      reason: 'setQueue-rollback',
+      resumePlayback: previousWasPlaying,
+      preservePosition: previousPosition,
+    );
     _notifyUiListeners();
     _notifyBackgroundStateListeners();
   }
@@ -249,22 +284,65 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
 
-    await _runPlayerCommand<void>(
+    final previousQueue = List<MusicTrack>.from(_queue);
+    final previousQueueEntryIds = List<String>.from(_queueEntryIds);
+    final previousIndex = _currentIndex;
+    final previousLoadedTrackKey = _loadedTrackKey;
+    final previousWasPlaying = _isPlaying;
+    final previousPosition = _position;
+
+    final added = await _runPlayerCommand<bool>(
       'add to queue',
       track: track,
       () async {
+        final hadActiveTrack = currentTrack != null && _loadedTrackKey != null;
+        final canMutateQueueInPlace = hadActiveTrack && _canUseLoadedQueuePlaylist;
         if (_queue.isEmpty) {
           _queue = <MusicTrack>[track];
+          _queueEntryIds = <String>[_newQueueEntryId(track)];
           _currentIndex = -1;
         } else {
           final insertIndex =
               _currentIndex < 0 ? _queue.length : _currentIndex + 1;
           _queue.insert(insertIndex, track);
+          _queueEntryIds.insert(insertIndex, _newQueueEntryId(track));
+          if (canMutateQueueInPlace) {
+            final source = await _audioSourceForTrack(track);
+            if (source != null) {
+              await _player.insertAudioSource(insertIndex, source);
+            }
+          }
         }
         _refreshShuffleOrder();
+        if (hadActiveTrack && _queue.isNotEmpty && !canMutateQueueInPlace) {
+          await _syncActiveQueueState(
+            reason: 'addToQueue',
+            resumePlayback: _isPlaying,
+            preservePosition: _position,
+          );
+        }
+        return true;
       },
       failureMessage: 'Unable to add ${track.title} to the queue.',
     );
+
+    if (added != true) {
+      _queue = previousQueue;
+      _queueEntryIds = previousQueueEntryIds;
+      _currentIndex = previousIndex;
+      _loadedTrackKey = previousLoadedTrackKey;
+      _refreshShuffleOrder(
+        moveCurrentToFront: _shuffleEnabled,
+        reshuffleTail: false,
+      );
+      await _restorePlaybackSnapshot(
+        reason: 'addToQueue-rollback',
+        resumePlayback: previousWasPlaying,
+        preservePosition: previousPosition,
+      );
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
+    }
   }
 
   Future<void> removeAt(int index) async {
@@ -273,7 +351,11 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final previousQueue = List<MusicTrack>.from(_queue);
+    final previousQueueEntryIds = List<String>.from(_queueEntryIds);
     final previousIndex = _currentIndex;
+    final previousLoadedTrackKey = _loadedTrackKey;
+    final previousWasPlaying = _isPlaying;
+    final previousPosition = _position;
     final removedTrack = _queue[index];
 
     final removed = await _runPlayerCommand<bool>(
@@ -283,7 +365,10 @@ class AudioPlayerService extends ChangeNotifier {
       () async {
         final wasCurrentTrack = index == _currentIndex;
         final shouldResume = _isPlaying;
+        final preservePosition = _position;
+        final canMutateQueueInPlace = !wasCurrentTrack && _canUseLoadedQueuePlaylist;
         _queue.removeAt(index);
+        _queueEntryIds.removeAt(index);
 
         if (_queue.isEmpty) {
           _currentIndex = -1;
@@ -295,10 +380,30 @@ class AudioPlayerService extends ChangeNotifier {
 
         if (index < _currentIndex) {
           _currentIndex -= 1;
+          _refreshShuffleOrder();
+          if (canMutateQueueInPlace) {
+            await _player.removeAudioSourceAt(index);
+          } else {
+            await _syncActiveQueueState(
+              reason: 'removeAt-shift-current',
+              resumePlayback: shouldResume,
+              preservePosition: preservePosition,
+            );
+          }
           return true;
         }
 
         if (!wasCurrentTrack) {
+          _refreshShuffleOrder();
+          if (canMutateQueueInPlace) {
+            await _player.removeAudioSourceAt(index);
+          } else {
+            await _syncActiveQueueState(
+              reason: 'removeAt-noncurrent',
+              resumePlayback: shouldResume,
+              preservePosition: preservePosition,
+            );
+          }
           return true;
         }
 
@@ -320,7 +425,18 @@ class AudioPlayerService extends ChangeNotifier {
 
     if (removed != true) {
       _queue = previousQueue;
+      _queueEntryIds = previousQueueEntryIds;
       _currentIndex = previousIndex;
+      _loadedTrackKey = previousLoadedTrackKey;
+      _refreshShuffleOrder(
+        moveCurrentToFront: _shuffleEnabled,
+        reshuffleTail: false,
+      );
+      await _restorePlaybackSnapshot(
+        reason: 'removeAt-rollback',
+        resumePlayback: previousWasPlaying,
+        preservePosition: previousPosition,
+      );
       _notifyUiListeners();
       _notifyBackgroundStateListeners();
     }
@@ -339,30 +455,64 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
 
-    await _runPlayerCommand<void>(
+    final previousQueue = List<MusicTrack>.from(_queue);
+    final previousQueueEntryIds = List<String>.from(_queueEntryIds);
+    final previousIndex = _currentIndex;
+    final previousLoadedTrackKey = _loadedTrackKey;
+    final previousWasPlaying = _isPlaying;
+    final previousPosition = _position;
+
+    final moved = await _runPlayerCommand<bool>(
       'reorder the queue',
       track: currentTrack,
       () async {
+        final resumePlayback = _isPlaying;
+        final preservePosition = _position;
+        final canMutateQueueInPlace = _canUseLoadedQueuePlaylist;
         final track = _queue.removeAt(oldIndex);
+        final entryId = _queueEntryIds.removeAt(oldIndex);
         _queue.insert(adjustedIndex, track);
+        _queueEntryIds.insert(adjustedIndex, entryId);
 
         if (_currentIndex == oldIndex) {
           _currentIndex = adjustedIndex;
-          return;
-        }
-
-        if (oldIndex < _currentIndex && adjustedIndex >= _currentIndex) {
+        } else if (oldIndex < _currentIndex && adjustedIndex >= _currentIndex) {
           _currentIndex -= 1;
-          return;
-        }
-
-        if (oldIndex > _currentIndex && adjustedIndex <= _currentIndex) {
+        } else if (oldIndex > _currentIndex && adjustedIndex <= _currentIndex) {
           _currentIndex += 1;
         }
         _refreshShuffleOrder();
+        if (canMutateQueueInPlace) {
+          await _player.moveAudioSource(oldIndex, adjustedIndex);
+        } else {
+          await _syncActiveQueueState(
+            reason: 'moveQueueItem',
+            resumePlayback: resumePlayback,
+            preservePosition: preservePosition,
+          );
+        }
+        return true;
       },
       failureMessage: 'Unable to reorder the queue right now.',
     );
+
+    if (moved != true) {
+      _queue = previousQueue;
+      _queueEntryIds = previousQueueEntryIds;
+      _currentIndex = previousIndex;
+      _loadedTrackKey = previousLoadedTrackKey;
+      _refreshShuffleOrder(
+        moveCurrentToFront: _shuffleEnabled,
+        reshuffleTail: false,
+      );
+      await _restorePlaybackSnapshot(
+        reason: 'moveQueueItem-rollback',
+        resumePlayback: previousWasPlaying,
+        preservePosition: previousPosition,
+      );
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
+    }
   }
 
   Future<void> playFromQueue(int index) async {
@@ -371,17 +521,16 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final selectedTrack = _queue[index];
+    final previousIndex = _currentIndex;
+    final previousLoadedTrackKey = _loadedTrackKey;
+    final previousWasPlaying = _isPlaying;
+    final previousPosition = _position;
     final started = await _runPlayerCommand<bool>(
       'play the selected queue item',
       track: selectedTrack,
       markLoading: true,
       () async {
-        _currentIndex = index;
-        await _loadCurrentTrack(
-          autoPlay: true,
-          forceReload: true,
-          reason: 'playFromQueue',
-        );
+        await _switchToQueueIndex(index, reason: 'playFromQueue');
         return true;
       },
       failureMessage: 'Unable to play ${selectedTrack.title}.',
@@ -389,25 +538,51 @@ class AudioPlayerService extends ChangeNotifier {
 
     if (started == true) {
       _announceTrackChange();
+      return;
     }
+
+    _currentIndex = previousIndex;
+    _loadedTrackKey = previousLoadedTrackKey;
+    await _restorePlaybackSnapshot(
+      reason: 'playFromQueue-rollback',
+      resumePlayback: previousWasPlaying,
+      preservePosition: previousPosition,
+    );
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
   }
 
   void refreshTrackMetadata(MusicTrack updatedTrack) {
     var changed = false;
+    final previousCurrentTrack = currentTrack;
     _queue =
         _queue.map((track) {
           if (track.id != updatedTrack.id) {
             return track;
           }
           changed = true;
-          return updatedTrack;
+          return _mergeTrackMetadataPreservingSource(track, updatedTrack);
         }).toList();
 
     if (!changed) {
       return;
     }
 
-    if (currentTrack?.id == updatedTrack.id) {
+    if (previousCurrentTrack?.id == updatedTrack.id) {
+      final resumePlayback = _isPlaying;
+      final preservePosition = _position;
+      unawaited(
+        _runPlayerCommand<void>(
+          'refresh current track metadata',
+          track: currentTrack,
+          () => _syncActiveQueueState(
+            reason: 'refreshTrackMetadata',
+            resumePlayback: resumePlayback,
+            preservePosition: preservePosition,
+          ),
+          failureMessage: 'Unable to refresh the current track metadata.',
+        ),
+      );
       _announceTrackChange();
       return;
     }
@@ -481,17 +656,16 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final track = _queue[nextIndex];
+    final previousIndex = _currentIndex;
+    final previousLoadedTrackKey = _loadedTrackKey;
+    final previousWasPlaying = _isPlaying;
+    final previousPosition = _position;
     final advanced = await _runPlayerCommand<bool>(
       'skip to the next track',
       track: track,
       markLoading: true,
       () async {
-        _currentIndex = nextIndex;
-        await _loadCurrentTrack(
-          autoPlay: true,
-          forceReload: true,
-          reason: 'next',
-        );
+        await _switchToQueueIndex(nextIndex, reason: 'next');
         return true;
       },
       failureMessage: 'Unable to skip to the next track.',
@@ -499,7 +673,18 @@ class AudioPlayerService extends ChangeNotifier {
 
     if (advanced == true) {
       _announceTrackChange();
+      return;
     }
+
+    _currentIndex = previousIndex;
+    _loadedTrackKey = previousLoadedTrackKey;
+    await _restorePlaybackSnapshot(
+      reason: 'next-rollback',
+      resumePlayback: previousWasPlaying,
+      preservePosition: previousPosition,
+    );
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
   }
 
   Future<void> previous() async {
@@ -518,17 +703,16 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final track = _queue[previousIndex];
+    final existingIndex = _currentIndex;
+    final previousLoadedTrackKey = _loadedTrackKey;
+    final previousWasPlaying = _isPlaying;
+    final previousPosition = _position;
     final moved = await _runPlayerCommand<bool>(
       'return to the previous track',
       track: track,
       markLoading: true,
       () async {
-        _currentIndex = previousIndex;
-        await _loadCurrentTrack(
-          autoPlay: true,
-          forceReload: true,
-          reason: 'previous',
-        );
+        await _switchToQueueIndex(previousIndex, reason: 'previous');
         return true;
       },
       failureMessage: 'Unable to return to the previous track.',
@@ -536,7 +720,18 @@ class AudioPlayerService extends ChangeNotifier {
 
     if (moved == true) {
       _announceTrackChange();
+      return;
     }
+
+    _currentIndex = existingIndex;
+    _loadedTrackKey = previousLoadedTrackKey;
+    await _restorePlaybackSnapshot(
+      reason: 'previous-rollback',
+      resumePlayback: previousWasPlaying,
+      preservePosition: previousPosition,
+    );
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
   }
 
   Future<void> seek(Duration position) async {
@@ -775,11 +970,7 @@ class AudioPlayerService extends ChangeNotifier {
       _duration = track.duration;
       _notifyUiListeners();
       Duration? loadedDuration;
-      final hasPlayableNextTrack =
-          _queue.length > 1 &&
-          _currentIndex >= 0 &&
-          _currentIndex < _queue.length - 1;
-      if (hasPlayableNextTrack) {
+      if (_queue.length > 1) {
         loadedDuration = await _loadQueuedTracks(track: track);
       } else {
         final tag = _mediaItemForTrack(track);
@@ -853,32 +1044,72 @@ class AudioPlayerService extends ChangeNotifier {
     );
   }
 
+  bool get _canUseLoadedQueuePlaylist =>
+      _queue.length > 1 && _player.audioSources.length == _queue.length;
+
+  Future<AudioSource?> _audioSourceForTrack(MusicTrack track) async {
+    if (!_canQueueTrack(track)) {
+      return null;
+    }
+
+    if (track.hasValidLocalSource) {
+      final filePath = track.localPath!.trim();
+      if (!await File(filePath).exists()) {
+        return null;
+      }
+      return AudioSource.file(filePath, tag: _mediaItemForTrack(track));
+    }
+
+    return AudioSource.uri(
+      Uri.parse(_streamUrlForTrack(track)),
+      tag: _mediaItemForTrack(track),
+    );
+  }
+
   Future<_PreparedPlayerQueue> _buildPlayerQueueSources() async {
     final sources = <AudioSource>[];
     int? initialIndex;
 
-    for (var index = 0; index < _queue.length; index++) {
-      final track = _queue[index];
-      if (!_canQueueTrack(track)) {
+    final resolvedSources = await Future.wait(
+      _queue.asMap().entries.map((entry) async {
+        final index = entry.key;
+        final track = entry.value;
+        if (!_canQueueTrack(track)) {
+          return (index: index, source: null as AudioSource?);
+        }
+
+        if (track.hasValidLocalSource) {
+          final filePath = track.localPath!.trim();
+          if (!await File(filePath).exists()) {
+            return (index: index, source: null as AudioSource?);
+          }
+          return (
+            index: index,
+            source: AudioSource.file(
+              filePath,
+              tag: _mediaItemForTrack(track),
+            ),
+          );
+        }
+
+        final streamUrl = _streamUrlForTrack(track);
+        return (
+          index: index,
+          source: AudioSource.uri(
+            Uri.parse(streamUrl),
+            tag: _mediaItemForTrack(track),
+          ),
+        );
+      }),
+    );
+
+    for (final resolved in resolvedSources) {
+      final source = resolved.source;
+      if (source == null) {
         continue;
       }
 
-      AudioSource? source;
-      if (track.hasValidLocalSource) {
-        final filePath = track.localPath!.trim();
-        if (!await File(filePath).exists()) {
-          continue;
-        }
-        source = AudioSource.file(filePath, tag: _mediaItemForTrack(track));
-      } else {
-        final streamUrl = _streamUrlForTrack(track);
-        source = AudioSource.uri(
-          Uri.parse(streamUrl),
-          tag: _mediaItemForTrack(track),
-        );
-      }
-
-      if (index == _currentIndex) {
+      if (resolved.index == _currentIndex) {
         initialIndex = sources.length;
       }
       sources.add(source);
@@ -985,6 +1216,108 @@ class AudioPlayerService extends ChangeNotifier {
     _clearLoadingState(trackId: track.id, notify: false);
     _notifyUiListeners();
     _notifyBackgroundStateListeners();
+  }
+
+  Future<void> _switchToQueueIndex(int index, {required String reason}) async {
+    final track = _queue[index];
+    _currentIndex = index;
+
+    if (_canUseLoadedQueuePlaylist) {
+      debugPrint(
+        '[Audio] seekToQueueIndex'
+        ' | platform=$_platformLabel'
+        ' | trackId=${track.id}'
+        ' | title=${track.title}'
+        ' | queueIndex=$index'
+        ' | reason=$reason',
+      );
+      await _player.seek(Duration.zero, index: index);
+      _loadedTrackKey = _trackLoadKey(track);
+      _position = Duration.zero;
+      _bufferedPosition = Duration.zero;
+      _duration = track.duration;
+      _clearLoadingState(trackId: track.id, notify: false);
+      _notifyUiListeners();
+      _notifyBackgroundStateListeners();
+      if (!_isPlaying) {
+        _startPlayback(track, reason: reason);
+      }
+      return;
+    }
+
+    await _loadCurrentTrack(
+      autoPlay: true,
+      forceReload: true,
+      reason: reason,
+    );
+  }
+
+  Future<void> _syncActiveQueueState({
+    required String reason,
+    required bool resumePlayback,
+    required Duration preservePosition,
+  }) async {
+    final track = currentTrack;
+    if (track == null || _loadedTrackKey == null) {
+      return;
+    }
+
+    await _loadCurrentTrack(
+      autoPlay: false,
+      forceReload: true,
+      reason: reason,
+    );
+
+    final targetPosition = _clampRestorePosition(
+      preservePosition,
+      _duration ?? track.duration,
+    );
+    if (targetPosition > Duration.zero) {
+      await _player.seek(targetPosition, index: _currentIndex >= 0 ? _currentIndex : null);
+      _position = targetPosition;
+    } else {
+      _position = Duration.zero;
+    }
+
+    if (resumePlayback && currentTrack != null) {
+      _startPlayback(currentTrack!, reason: reason);
+    }
+
+    _notifyUiListeners();
+    _notifyBackgroundStateListeners();
+  }
+
+  Future<void> _restorePlaybackSnapshot({
+    required String reason,
+    required bool resumePlayback,
+    required Duration preservePosition,
+  }) async {
+    if (_queue.isEmpty || _currentIndex < 0 || _currentIndex >= _queue.length) {
+      return;
+    }
+
+    final track = currentTrack;
+    if (track == null || _loadedTrackKey == null) {
+      return;
+    }
+
+    try {
+      await _syncActiveQueueState(
+        reason: reason,
+        resumePlayback: resumePlayback,
+        preservePosition: preservePosition,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[Audio] Failed to restore playback snapshot'
+        ' | platform=$_platformLabel'
+        ' | trackId=${track.id}'
+        ' | title=${track.title}'
+        ' | reason=$reason'
+        ' | exception=$error',
+      );
+      debugPrint('$stackTrace');
+    }
   }
 
   Future<Duration?> _setRemoteUrl(
@@ -1136,18 +1469,21 @@ class AudioPlayerService extends ChangeNotifier {
     String? initialTrackCacheKey,
     required int initialIndex,
   }) {
-    final playableTracks = tracks.where(_canQueueTrack).fold<List<MusicTrack>>(
-      <MusicTrack>[],
-      (result, track) {
-        final alreadyPresent = result.any(
-          (existing) => existing.cacheKey == track.cacheKey,
-        );
-        if (!alreadyPresent) {
-          result.add(track);
-        }
-        return result;
-      },
-    );
+    final playableTracks = <MusicTrack>[];
+    final entryIds = <String>[];
+    for (final track in tracks) {
+      if (!_canQueueTrack(track)) {
+        continue;
+      }
+      final alreadyPresent = playableTracks.any(
+        (existing) => existing.cacheKey == track.cacheKey,
+      );
+      if (alreadyPresent) {
+        continue;
+      }
+      playableTracks.add(track);
+      entryIds.add(_newQueueEntryId(track));
+    }
 
     if (playableTracks.isEmpty) {
       return null;
@@ -1164,6 +1500,7 @@ class AudioPlayerService extends ChangeNotifier {
 
     return _PreparedQueue(
       tracks: playableTracks,
+      entryIds: entryIds,
       initialIndex: index < 0 ? 0 : index,
     );
   }
@@ -1323,14 +1660,15 @@ class AudioPlayerService extends ChangeNotifier {
             debugPrint('$stackTrace');
             _logErrorDetails(error, track: subject, context: action);
             _clearLoadingState(trackId: subject?.id, notify: false);
-            _recordError(
-              _messageForCommandFailure(
-                error,
-                action: action,
-                track: subject,
-                fallbackMessage: failureMessage,
-              ),
+            final message = _messageForCommandFailure(
+              error,
+              action: action,
+              track: subject,
+              fallbackMessage: failureMessage,
             );
+            if (message.isNotEmpty) {
+              _recordError(message);
+            }
             completer.complete(null);
           } finally {
             _activeCommandAction = null;
@@ -1373,6 +1711,31 @@ class AudioPlayerService extends ChangeNotifier {
 
     await _player.seek(desiredPosition);
     _position = desiredPosition;
+  }
+
+  MusicTrack _mergeTrackMetadataPreservingSource(
+    MusicTrack base,
+    MusicTrack metadata,
+  ) {
+    return base.copyWith(
+      title: metadata.title,
+      artistName: metadata.artistName,
+      artistId: metadata.artistId,
+      artistNames: metadata.artistNames,
+      artistIds: metadata.artistIds,
+      albumTitle: metadata.albumTitle,
+      albumId: metadata.albumId,
+      clearAlbumId: metadata.albumId == null,
+      artworkPath: metadata.artworkPath,
+      artworkUrl: metadata.artworkUrl,
+      clearArtworkPath: metadata.artworkPath == null,
+      clearArtworkUrl: metadata.artworkUrl == null,
+      description: metadata.description,
+      clearDescription: metadata.description == null,
+      genre: metadata.genre,
+      clearGenre: metadata.genre == null,
+      durationSeconds: metadata.durationSeconds,
+    );
   }
 
   void _recordError(String message) {
@@ -1437,10 +1800,7 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     if (error is PlayerInterruptedException) {
-      final detail = _cleanErrorText(error.message);
-      return detail.isEmpty
-          ? 'Playback for $trackLabel was interrupted while loading.'
-          : 'Playback for $trackLabel was interrupted while loading: $detail';
+      return '';
     }
 
     if (error is FileSystemException) {
@@ -1628,6 +1988,11 @@ class AudioPlayerService extends ChangeNotifier {
         .replaceFirst('Invalid argument(s): ', '');
   }
 
+  String _newQueueEntryId(MusicTrack track) {
+    _queueEntrySeed += 1;
+    return '${track.cacheKey}-${_queueEntrySeed.toRadixString(36)}';
+  }
+
   @override
   void dispose() {
     _disposed = true;
@@ -1649,9 +2014,14 @@ class AudioPlayerService extends ChangeNotifier {
 }
 
 class _PreparedQueue {
-  const _PreparedQueue({required this.tracks, required this.initialIndex});
+  const _PreparedQueue({
+    required this.tracks,
+    required this.entryIds,
+    required this.initialIndex,
+  });
 
   final List<MusicTrack> tracks;
+  final List<String> entryIds;
   final int initialIndex;
 }
 

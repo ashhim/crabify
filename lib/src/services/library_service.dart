@@ -221,6 +221,7 @@ class LibraryService extends ChangeNotifier {
     }
 
     final currentTrackId = state['currentTrackId'] as String?;
+    final currentTrackCacheKey = state['currentTrackCacheKey'] as String?;
     final currentIndex = state['currentIndex'] as int?;
     final position = Duration(
       milliseconds: state['positionMillis'] as int? ?? 0,
@@ -232,6 +233,7 @@ class LibraryService extends ChangeNotifier {
     await _audioPlayerService.restoreSession(
       tracks: playableTracks,
       currentTrackId: currentTrackId,
+      currentTrackCacheKey: currentTrackCacheKey,
       currentIndex: currentIndex,
       position: position,
       shuffleEnabled: shuffleEnabled,
@@ -552,6 +554,7 @@ class LibraryService extends ChangeNotifier {
       await _audioPlayerService.setQueue(
         playableTracks,
         initialTrackId: selectedTrack.id,
+        initialTrackCacheKey: selectedTrack.cacheKey,
         shuffle: true,
       );
       if (_audioPlayerService.currentTrack?.cacheKey !=
@@ -582,10 +585,12 @@ class LibraryService extends ChangeNotifier {
     }
 
     final startTrackId = selectedTrackId ?? tracks.first.id;
+    final startTrackCacheKey =
+        selectedTrackCacheKey ?? (selectedTrackId == null ? tracks.first.cacheKey : null);
     await playTracks(
       tracks,
       selectedTrackId: startTrackId,
-      selectedTrackCacheKey: selectedTrackCacheKey,
+      selectedTrackCacheKey: startTrackCacheKey,
       shuffle: shuffle,
       playlistContextId: playlist.id,
     );
@@ -2183,26 +2188,36 @@ class LibraryService extends ChangeNotifier {
     final playableTracks = <MusicTrack>[];
     var removedMissingLocalTrack = false;
 
-    for (final track in tracks) {
-      if (!track.hasValidId) {
-        continue;
-      }
-
-      if (track.hasValidLocalSource) {
-        if (await _localStorageService.fileExists(track.localPath)) {
-          playableTracks.add(track);
-          continue;
+    final candidateChecks = await Future.wait(
+      tracks.map((track) async {
+        if (!track.hasValidId) {
+          return (track: track, playable: false, missingLocal: false);
         }
 
-        removedMissingLocalTrack = true;
-        debugPrint(
-          '[Library] Local file missing for ${track.title} | path=${track.localPath}',
+        if (track.hasValidLocalSource) {
+          final exists = await _localStorageService.fileExists(track.localPath);
+          return (track: track, playable: exists, missingLocal: !exists);
+        }
+
+        return (
+          track: track,
+          playable: track.hasValidRemoteSource,
+          missingLocal: false,
         );
+      }),
+    );
+
+    for (final candidate in candidateChecks) {
+      if (candidate.playable) {
+        playableTracks.add(candidate.track);
         continue;
       }
 
-      if (track.hasValidRemoteSource) {
-        playableTracks.add(track);
+      if (candidate.missingLocal) {
+        removedMissingLocalTrack = true;
+        debugPrint(
+          '[Library] Local file missing for ${candidate.track.title} | path=${candidate.track.localPath}',
+        );
       }
     }
 

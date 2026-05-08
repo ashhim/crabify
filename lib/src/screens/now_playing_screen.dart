@@ -369,6 +369,8 @@ class _QueueSection extends StatelessWidget {
               height: listHeight,
               child: ReorderableListView.builder(
                 buildDefaultDragHandles: false,
+                primary: false,
+                physics: const ClampingScrollPhysics(),
                 itemCount: queue.length,
                 onReorder:
                     (oldIndex, newIndex) => context
@@ -378,7 +380,7 @@ class _QueueSection extends StatelessWidget {
                   final item = queue[index];
                   final active = index == audio.currentIndex;
                   return _QueueListTile(
-                    key: ValueKey('now-playing-queue-${item.cacheKey}-$index'),
+                    key: ValueKey(audio.queueEntryIdAt(index)),
                     track: item,
                     index: index,
                     active: active,
@@ -424,6 +426,8 @@ class _QueueSheet extends StatelessWidget {
                   height: 420,
                   child: ReorderableListView.builder(
                     buildDefaultDragHandles: false,
+                    primary: false,
+                    physics: const ClampingScrollPhysics(),
                     itemCount: audio.queue.length,
                     onReorder: (oldIndex, newIndex) {
                       context.read<LibraryService>().moveQueueItem(
@@ -435,7 +439,7 @@ class _QueueSheet extends StatelessWidget {
                       final track = audio.queue[index];
                       final active = index == audio.currentIndex;
                       return _QueueListTile(
-                        key: ValueKey('queue-sheet-${track.cacheKey}-$index'),
+                        key: ValueKey(audio.queueEntryIdAt(index)),
                         track: track,
                         index: index,
                         active: active,

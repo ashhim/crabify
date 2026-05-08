@@ -515,6 +515,7 @@ class _QueueTagSection extends StatelessWidget {
               ? const Text('Start playback, then queue items will appear here.')
               : ReorderableListView.builder(
                 shrinkWrap: true,
+                primary: false,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: audio.queue.length,
                 onReorder:
@@ -525,7 +526,7 @@ class _QueueTagSection extends StatelessWidget {
                   final track = audio.queue[index];
                   final active = index == audio.currentIndex;
                   return TrackTile(
-                    key: ValueKey('search-queue-${track.cacheKey}-$index'),
+                    key: ValueKey(audio.queueEntryIdAt(index)),
                     track: track,
                     leadingIndex: index + 1,
                     active: active,

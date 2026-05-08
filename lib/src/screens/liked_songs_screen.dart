@@ -86,6 +86,8 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                           : () => library.playTracks(
                             filteredTracks,
                             selectedTrackId: filteredTracks.first.id,
+                            selectedTrackCacheKey:
+                                filteredTracks.first.cacheKey,
                           ),
                   icon: const Icon(Icons.play_arrow_rounded),
                 ),
