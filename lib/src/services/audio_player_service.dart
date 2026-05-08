@@ -187,6 +187,7 @@ class AudioPlayerService extends ChangeNotifier {
   Future<void> setQueue(
     List<MusicTrack> tracks, {
     String? initialTrackId,
+    String? initialTrackCacheKey,
     int initialIndex = 0,
     bool autoPlay = true,
     bool shuffle = false,
@@ -194,6 +195,7 @@ class AudioPlayerService extends ChangeNotifier {
     final preparedQueue = _prepareQueue(
       tracks,
       initialTrackId: initialTrackId,
+      initialTrackCacheKey: initialTrackCacheKey,
       initialIndex: initialIndex,
     );
 
@@ -1131,6 +1133,7 @@ class AudioPlayerService extends ChangeNotifier {
   _PreparedQueue? _prepareQueue(
     List<MusicTrack> tracks, {
     String? initialTrackId,
+    String? initialTrackCacheKey,
     required int initialIndex,
   }) {
     final playableTracks = tracks.where(_canQueueTrack).fold<List<MusicTrack>>(
@@ -1151,7 +1154,11 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final index =
-        initialTrackId == null
+        initialTrackCacheKey != null
+            ? playableTracks.indexWhere(
+              (track) => track.cacheKey == initialTrackCacheKey,
+            )
+            : initialTrackId == null
             ? initialIndex.clamp(0, playableTracks.length - 1)
             : playableTracks.indexWhere((track) => track.id == initialTrackId);
 

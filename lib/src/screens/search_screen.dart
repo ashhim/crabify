@@ -15,7 +15,7 @@ import '../widgets/track_actions.dart';
 import '../widgets/track_tile.dart';
 import 'detail_screen.dart';
 
-enum _SearchTag { crabify, offline, playlists, liked, queue }
+enum _SearchTag { crabify, offline, playlists, liked, recent, queue }
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -138,6 +138,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         () => library.playTracks(
                           _tracks,
                           selectedTrackId: track.id,
+                          selectedTrackCacheKey: track.cacheKey,
                         ),
                     trailing: IconButton(
                       onPressed:
@@ -260,6 +261,11 @@ class _SearchScreenState extends State<SearchScreen> {
         tag: _SearchTag.liked,
       ),
       (
+        label: 'Recent',
+        color: CrabifyColors.searchTileD,
+        tag: _SearchTag.recent,
+      ),
+      (
         label: 'Queue',
         color: CrabifyColors.searchTileF,
         tag: _SearchTag.queue,
@@ -324,6 +330,7 @@ class _SearchScreenState extends State<SearchScreen> {
       'offline' || 'downloaded' || 'imported' => _SearchTag.offline,
       'playlists' => _SearchTag.playlists,
       'liked' => _SearchTag.liked,
+      'recent' => _SearchTag.recent,
       'queue' => _SearchTag.queue,
       _ => _SearchTag.crabify,
     };
@@ -335,6 +342,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _SearchTag.offline => 'offline',
       _SearchTag.playlists => 'playlists',
       _SearchTag.liked => 'liked',
+      _SearchTag.recent => 'recent',
       _SearchTag.queue => 'queue',
     };
   }
@@ -369,6 +377,11 @@ class _SearchTagContent extends StatelessWidget {
         title: 'Liked songs',
         tracks: library.likedTracks,
         emptyMessage: 'Like songs from any track menu or player screen.',
+      ),
+      _SearchTag.recent => _TrackTagSection(
+        title: 'Recent',
+        tracks: library.recentTracks,
+        emptyMessage: 'Tracks you play will appear here for quick access.',
       ),
       _SearchTag.playlists => _PlaylistTagSection(library: library),
       _SearchTag.queue => _QueueTagSection(audio: audio),
@@ -412,6 +425,7 @@ class _TrackTagSection extends StatelessWidget {
                             () => library.playTracks(
                               tracks,
                               selectedTrackId: track.id,
+                              selectedTrackCacheKey: track.cacheKey,
                             ),
                         trailing: IconButton(
                           onPressed:

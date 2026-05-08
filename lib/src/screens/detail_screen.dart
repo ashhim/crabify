@@ -195,6 +195,8 @@ class CollectionDetailScreen extends StatelessWidget {
                                           () => library.playTracks(
                                             tracks,
                                             selectedTrackId: track.id,
+                                            selectedTrackCacheKey:
+                                                track.cacheKey,
                                           ),
                                       trailing: IconButton(
                                         onPressed:
@@ -463,7 +465,11 @@ class _PlaylistTrackRow extends StatelessWidget {
           track: track,
           leadingIndex: index + 1,
           onTap:
-              () => library.playPlaylist(collection, selectedTrackId: track.id),
+              () => library.playPlaylist(
+                collection,
+                selectedTrackId: track.id,
+                selectedTrackCacheKey: track.cacheKey,
+              ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
@@ -643,6 +649,7 @@ class ArtistDetailScreen extends StatelessWidget {
                                     () => library.playTracks(
                                       tracks,
                                       selectedTrackId: track.id,
+                                      selectedTrackCacheKey: track.cacheKey,
                                     ),
                                 trailing: IconButton(
                                   onPressed:

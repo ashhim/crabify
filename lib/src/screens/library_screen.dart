@@ -907,7 +907,12 @@ class _OfflineSection extends StatelessWidget {
           ...tracks.map((track) {
             return TrackTile(
               track: track,
-              onTap: () => library.playTracks(tracks, selectedTrackId: track.id),
+              onTap:
+                  () => library.playTracks(
+                    tracks,
+                    selectedTrackId: track.id,
+                    selectedTrackCacheKey: track.cacheKey,
+                  ),
               trailing: IconButton(
                 onPressed: () => showTrackActionsSheet(context, track: track),
                 icon: const Icon(Icons.more_horiz_rounded),
@@ -1007,7 +1012,11 @@ class _TrackSection extends StatelessWidget {
             return TrackTile(
               track: track,
               onTap:
-                  () => library.playTracks(tracks, selectedTrackId: track.id),
+                  () => library.playTracks(
+                    tracks,
+                    selectedTrackId: track.id,
+                    selectedTrackCacheKey: track.cacheKey,
+                  ),
               trailing: IconButton(
                 onPressed: () => showTrackActionsSheet(context, track: track),
                 icon: const Icon(Icons.more_horiz_rounded),
@@ -1086,7 +1095,11 @@ class _RecentSection extends StatelessWidget {
             return TrackTile(
               track: track,
               onTap:
-                  () => library.playTracks(tracks, selectedTrackId: track.id),
+                  () => library.playTracks(
+                    tracks,
+                    selectedTrackId: track.id,
+                    selectedTrackCacheKey: track.cacheKey,
+                  ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[

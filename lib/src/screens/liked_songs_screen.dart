@@ -112,9 +112,10 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                   leadingIndex: index + 1,
                   onTap:
                       () => library.playTracks(
-                        filteredTracks,
-                        selectedTrackId: track.id,
-                      ),
+                      filteredTracks,
+                      selectedTrackId: track.id,
+                      selectedTrackCacheKey: track.cacheKey,
+                    ),
                   trailing: IconButton(
                     onPressed:
                         () => showTrackActionsSheet(context, track: track),
