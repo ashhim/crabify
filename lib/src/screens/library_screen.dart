@@ -888,6 +888,12 @@ class _OfflineSection extends StatelessWidget {
               onPressed: onImport,
               icon: const Icon(Icons.file_upload_rounded),
             ),
+            IconButton.filledTonal(
+              tooltip: 'Shuffle offline songs',
+              onPressed:
+                  tracks.isEmpty ? null : () => library.playTracksShuffled(tracks),
+              icon: const Icon(Icons.shuffle_rounded),
+            ),
           ],
         ),
         const SizedBox(height: 14),

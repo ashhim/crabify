@@ -276,17 +276,12 @@ class LibraryService extends ChangeNotifier {
         onlineTracks = DemoCatalog.onlineTracks();
         _applyTrackOverrides();
         usingFallbackCatalog = true;
-        onlineError =
-            'Audius could not be reached, so Crabify loaded the built-in demo catalog instead.';
       } else if (_containsDemoTracks(onlineTracks)) {
         usingFallbackCatalog = true;
-        onlineError =
-            'Audius refresh failed, so Crabify kept the built-in demo catalog for now.';
       } else {
         usingFallbackCatalog = false;
-        onlineError =
-            'Audius refresh failed, so Crabify kept the last available online tracks.';
       }
+      onlineError = null;
       _syncStarterPlaylistsWithOnlineTracks();
       _syncArtistPlaylists();
       _refreshArtistCoverArtwork();

@@ -15,7 +15,7 @@ import '../widgets/track_actions.dart';
 import '../widgets/track_tile.dart';
 import 'detail_screen.dart';
 
-enum _SearchTag { crabify, downloaded, playlists, imported, liked, queue }
+enum _SearchTag { crabify, offline, playlists, liked, queue }
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -245,19 +245,14 @@ class _SearchScreenState extends State<SearchScreen> {
         tag: _SearchTag.crabify,
       ),
       (
-        label: 'Download',
+        label: 'Offline',
         color: CrabifyColors.searchTileB,
-        tag: _SearchTag.downloaded,
+        tag: _SearchTag.offline,
       ),
       (
         label: 'Playlists',
         color: CrabifyColors.searchTileC,
         tag: _SearchTag.playlists,
-      ),
-      (
-        label: 'Imported',
-        color: CrabifyColors.searchTileD,
-        tag: _SearchTag.imported,
       ),
       (
         label: 'Liked Songs',
@@ -325,18 +320,20 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   _SearchTag _tagFromKey(String key) {
-    return _SearchTag.values.firstWhere(
-      (tag) => _keyForTag(tag) == key,
-      orElse: () => _SearchTag.crabify,
-    );
+    return switch (key) {
+      'offline' || 'downloaded' || 'imported' => _SearchTag.offline,
+      'playlists' => _SearchTag.playlists,
+      'liked' => _SearchTag.liked,
+      'queue' => _SearchTag.queue,
+      _ => _SearchTag.crabify,
+    };
   }
 
   String _keyForTag(_SearchTag tag) {
     return switch (tag) {
       _SearchTag.crabify => 'crabify',
-      _SearchTag.downloaded => 'downloaded',
+      _SearchTag.offline => 'offline',
       _SearchTag.playlists => 'playlists',
-      _SearchTag.imported => 'imported',
       _SearchTag.liked => 'liked',
       _SearchTag.queue => 'queue',
     };
@@ -362,15 +359,11 @@ class _SearchTagContent extends StatelessWidget {
         tracks: library.onlineTracks,
         emptyMessage: 'Crabify is waiting for Audius tracks to load.',
       ),
-      _SearchTag.downloaded => _TrackTagSection(
-        title: 'Downloaded',
-        tracks: library.downloadedTracks,
-        emptyMessage: 'Downloaded songs will appear here for offline playback.',
-      ),
-      _SearchTag.imported => _TrackTagSection(
-        title: 'Imported',
-        tracks: library.importedTracks,
-        emptyMessage: 'Imported songs from this device will appear here.',
+      _SearchTag.offline => _TrackTagSection(
+        title: 'Offline',
+        tracks: library.localTracks,
+        emptyMessage:
+            'Imported, uploaded, and downloaded songs will appear here for offline playback.',
       ),
       _SearchTag.liked => _TrackTagSection(
         title: 'Liked songs',

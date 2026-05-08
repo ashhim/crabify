@@ -99,7 +99,8 @@ class CollectionDetailScreen extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 12,
                 children: <Widget>[
-                  FilledButton.icon(
+                  IconButton.filled(
+                    tooltip: 'Play',
                     onPressed:
                         tracks.isEmpty
                             ? null
@@ -111,10 +112,9 @@ class CollectionDetailScreen extends StatelessWidget {
                                       selectedTrackId: tracks.first.id,
                                     ),
                     icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text('Play'),
                   ),
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
+                  IconButton.outlined(
+                    tooltip: 'Shuffle',
                     onPressed:
                         tracks.isEmpty
                             ? null
@@ -126,17 +126,16 @@ class CollectionDetailScreen extends StatelessWidget {
                                     )
                                     : library.playTracksShuffled(tracks),
                     icon: const Icon(Icons.shuffle_rounded),
-                    label: const Text('Shuffle'),
                   ),
                   if (isPlaylist)
-                    FilledButton.tonalIcon(
+                    IconButton.filledTonal(
+                      tooltip: 'Add songs',
                       onPressed:
                           () => _openPlaylistTrackPicker(
                             context,
                             currentCollection,
                           ),
                       icon: const Icon(Icons.library_add_rounded),
-                      label: const Text('Add songs'),
                     ),
                 ],
               ),

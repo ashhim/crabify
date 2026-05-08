@@ -78,7 +78,8 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
             const SizedBox(height: 18),
             Row(
               children: <Widget>[
-                FilledButton.icon(
+                IconButton.filled(
+                  tooltip: 'Play liked songs',
                   onPressed:
                       filteredTracks.isEmpty
                           ? null
@@ -87,16 +88,15 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                             selectedTrackId: filteredTracks.first.id,
                           ),
                   icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Play'),
                 ),
                 const SizedBox(width: 12),
-                OutlinedButton.icon(
+                IconButton.outlined(
+                  tooltip: 'Shuffle liked songs',
                   onPressed:
                       filteredTracks.isEmpty
                           ? null
                           : () => library.playTracksShuffled(filteredTracks),
                   icon: const Icon(Icons.shuffle_rounded),
-                  label: const Text('Shuffle'),
                 ),
               ],
             ),
