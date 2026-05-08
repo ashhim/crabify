@@ -215,38 +215,31 @@ class CrabifyBootstrapView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final logoSize =
+        MediaQuery.sizeOf(context).shortestSide.clamp(180.0, 240.0).toDouble();
+
     return Scaffold(
-      body: SafeArea(
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              CrabifyColors.background,
+              CrabifyColors.topBar,
+              CrabifyColors.background,
+            ],
+          ),
+        ),
         child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: CrabifyColors.surface,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: CrabifyColors.border),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 18),
-                  Text(
-                    'Starting Crabify',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Loading your library, player, and background services.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
+          child: SizedBox(
+            width: logoSize,
+            height: logoSize,
+            child: Image.asset(
+              'assets/logo.png',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              isAntiAlias: true,
             ),
           ),
         ),

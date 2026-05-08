@@ -11,6 +11,7 @@ import '../widgets/skeletons.dart';
 import '../widgets/surface_card.dart';
 import '../widgets/track_actions.dart';
 import 'detail_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -34,7 +35,8 @@ class HomeScreen extends StatelessWidget {
                 : recentShelfTracks.isNotEmpty
                 ? recentShelfTracks
                 : offlineShelfTracks;
-        final preferredShelfTracks = preferredShelfSourceTracks.take(6).toList();
+        final preferredShelfTracks =
+            preferredShelfSourceTracks.take(6).toList();
         final preferredShelfTitle =
             likedShelfTracks.isNotEmpty
                 ? 'Liked songs'
@@ -70,13 +72,6 @@ class HomeScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
               children: <Widget>[
                 const _TopBar(),
-                const SizedBox(height: 22),
-                Text(
-                  'Good evening',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
                 const SizedBox(height: 18),
                 if (library.onlineError != null) ...<Widget>[
                   _StatusBanner(message: library.onlineError!),
@@ -182,7 +177,7 @@ class HomeScreen extends StatelessWidget {
                                     () => library.playTracks(
                                       onlineTracks,
                                       selectedTrackId: track.id,
-                                ),
+                                    ),
                               ),
                             );
                           },
@@ -291,9 +286,30 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = context.read<LibraryService>();
+
     return Row(
       children: <Widget>[
         const Spacer(),
+        GestureDetector(
+          onTap: () async {
+            final uri = Uri.parse(
+              'https://www.instagram.com/crabox_?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw==',
+            );
+
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+          },
+          child: Image.asset(
+            'assets/logo.png',
+            width: 24,
+            height: 24,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            isAntiAlias: true,
+          ),
+        ),
+        const SizedBox(width: 8),
         _RoundIconButton(
           icon: Icons.shuffle_rounded,
           onTap: library.shuffleFromHome,
