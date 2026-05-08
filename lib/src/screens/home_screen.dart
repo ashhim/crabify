@@ -102,6 +102,7 @@ class HomeScreen extends StatelessWidget {
                             () => library.playTracks(
                               quickPicks,
                               selectedTrackId: track.id,
+                              selectedTrackCacheKey: track.cacheKey,
                             ),
                       );
                     },
@@ -177,6 +178,7 @@ class HomeScreen extends StatelessWidget {
                                     () => library.playTracks(
                                       onlineTracks,
                                       selectedTrackId: track.id,
+                                      selectedTrackCacheKey: track.cacheKey,
                                     ),
                               ),
                             );
@@ -231,6 +233,7 @@ class HomeScreen extends StatelessWidget {
                                   () => library.playTracks(
                                     preferredShelfSourceTracks,
                                     selectedTrackId: track.id,
+                                    selectedTrackCacheKey: track.cacheKey,
                                   ),
                               leading: ArtworkTile(
                                 seed: track.cacheKey,
@@ -431,6 +434,7 @@ class _PlaylistCard extends StatelessWidget {
                             : () => library.playTracks(
                               tracks,
                               selectedTrackId: tracks.first.id,
+                              selectedTrackCacheKey: tracks.first.cacheKey,
                             ),
                     borderRadius: BorderRadius.circular(24),
                     child: Container(

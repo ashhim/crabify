@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
 import '../models/music_track.dart';
+import '../services/audio_player_service.dart';
 import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
 import '../widgets/artwork_tile.dart';
@@ -109,6 +110,8 @@ class CollectionDetailScreen extends StatelessWidget {
                                     : library.playTracks(
                                       tracks,
                                       selectedTrackId: tracks.first.id,
+                                      selectedTrackCacheKey:
+                                          tracks.first.cacheKey,
                                     ),
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: const Text('Play'),
@@ -196,6 +199,8 @@ class CollectionDetailScreen extends StatelessWidget {
                                           () => library.playTracks(
                                             tracks,
                                             selectedTrackId: track.id,
+                                            selectedTrackCacheKey:
+                                                track.cacheKey,
                                           ),
                                       trailing: IconButton(
                                         onPressed:
@@ -458,13 +463,23 @@ class _PlaylistTrackRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = context.read<LibraryService>();
+    final active =
+        context.select<AudioPlayerService, String?>(
+          (audio) => audio.currentTrack?.cacheKey,
+        ) ==
+        track.cacheKey;
     return Column(
       children: <Widget>[
         TrackTile(
           track: track,
+          active: active,
           leadingIndex: index + 1,
           onTap:
-              () => library.playPlaylist(collection, selectedTrackId: track.id),
+              () => library.playPlaylist(
+                collection,
+                selectedTrackId: track.id,
+                selectedTrackCacheKey: track.cacheKey,
+              ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
@@ -605,6 +620,8 @@ class ArtistDetailScreen extends StatelessWidget {
                             : () => library.playTracks(
                               tracks,
                               selectedTrackId: tracks.first.id,
+                              selectedTrackCacheKey:
+                                  tracks.first.cacheKey,
                             ),
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: const Text('Play'),
@@ -644,6 +661,7 @@ class ArtistDetailScreen extends StatelessWidget {
                                     () => library.playTracks(
                                       tracks,
                                       selectedTrackId: track.id,
+                                      selectedTrackCacheKey: track.cacheKey,
                                     ),
                                 trailing: IconButton(
                                   onPressed:

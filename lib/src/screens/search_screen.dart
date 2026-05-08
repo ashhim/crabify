@@ -138,6 +138,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         () => library.playTracks(
                           _tracks,
                           selectedTrackId: track.id,
+                          selectedTrackCacheKey: track.cacheKey,
                         ),
                     trailing: IconButton(
                       onPressed:
@@ -419,6 +420,7 @@ class _TrackTagSection extends StatelessWidget {
                             () => library.playTracks(
                               tracks,
                               selectedTrackId: track.id,
+                              selectedTrackCacheKey: track.cacheKey,
                             ),
                         trailing: IconButton(
                           onPressed:

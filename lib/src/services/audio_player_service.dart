@@ -197,6 +197,7 @@ class AudioPlayerService extends ChangeNotifier {
   Future<void> setQueue(
     List<MusicTrack> tracks, {
     String? initialTrackId,
+    String? initialTrackCacheKey,
     int initialIndex = 0,
     bool autoPlay = true,
     bool shuffle = false,
@@ -204,6 +205,7 @@ class AudioPlayerService extends ChangeNotifier {
     final preparedQueue = _prepareQueue(
       tracks,
       initialTrackId: initialTrackId,
+      initialTrackCacheKey: initialTrackCacheKey,
       initialIndex: initialIndex,
     );
 
@@ -419,6 +421,16 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final selectedTrack = _queue[index];
+    if (_canSeekWithinLoadedQueue(index)) {
+      await _runPlayerCommand<void>(
+        'play the selected queue item',
+        track: selectedTrack,
+        () => _seekWithinLoadedQueue(index, reason: 'playFromQueue'),
+        failureMessage: 'Unable to play ${selectedTrack.title}.',
+      );
+      return;
+    }
+
     final started = await _runPlayerCommand<bool>(
       'play the selected queue item',
       track: selectedTrack,
@@ -529,6 +541,16 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final track = _queue[nextIndex];
+    if (_canSeekWithinLoadedQueue(nextIndex)) {
+      await _runPlayerCommand<void>(
+        'skip to the next track',
+        track: track,
+        () => _seekWithinLoadedQueue(nextIndex, reason: 'next'),
+        failureMessage: 'Unable to skip to the next track.',
+      );
+      return;
+    }
+
     final advanced = await _runPlayerCommand<bool>(
       'skip to the next track',
       track: track,
@@ -566,6 +588,16 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final track = _queue[previousIndex];
+    if (_canSeekWithinLoadedQueue(previousIndex)) {
+      await _runPlayerCommand<void>(
+        'return to the previous track',
+        track: track,
+        () => _seekWithinLoadedQueue(previousIndex, reason: 'previous'),
+        failureMessage: 'Unable to return to the previous track.',
+      );
+      return;
+    }
+
     final moved = await _runPlayerCommand<bool>(
       'return to the previous track',
       track: track,
@@ -878,11 +910,11 @@ class AudioPlayerService extends ChangeNotifier {
       _duration = track.duration;
       _notifyUiListeners();
       Duration? loadedDuration;
-      final hasPlayableNextTrack =
+      final hasQueuePlaylist =
           _queue.length > 1 &&
           _currentIndex >= 0 &&
-          _currentIndex < _queue.length - 1;
-      if (hasPlayableNextTrack) {
+          _currentIndex < _queue.length;
+      if (hasQueuePlaylist) {
         loadedDuration = await _loadQueuedTracks(track: track);
       } else {
         final tag = _mediaItemForTrack(track);
@@ -1236,6 +1268,7 @@ class AudioPlayerService extends ChangeNotifier {
   _PreparedQueue? _prepareQueue(
     List<MusicTrack> tracks, {
     String? initialTrackId,
+    String? initialTrackCacheKey,
     required int initialIndex,
   }) {
     final playableTracks = tracks.where(_canQueueTrack).fold<List<MusicTrack>>(
@@ -1256,7 +1289,11 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     final index =
-        initialTrackId == null
+        initialTrackCacheKey != null
+            ? playableTracks.indexWhere(
+              (track) => track.cacheKey == initialTrackCacheKey,
+            )
+            : initialTrackId == null
             ? initialIndex.clamp(0, playableTracks.length - 1)
             : playableTracks.indexWhere((track) => track.id == initialTrackId);
 
@@ -1348,6 +1385,37 @@ class AudioPlayerService extends ChangeNotifier {
 
     _notifyUiListeners();
     _notifyBackgroundStateListeners();
+  }
+
+  bool _canSeekWithinLoadedQueue(int targetIndex) {
+    if (targetIndex < 0 || targetIndex >= _queue.length) {
+      return false;
+    }
+    final track = currentTrack;
+    if (track == null || _processingState == ProcessingState.idle) {
+      return false;
+    }
+    return _loadedTrackKey == _trackLoadKey(track) &&
+        _player.sequence.length == _queue.length &&
+        _player.currentIndex != null;
+  }
+
+  Future<void> _seekWithinLoadedQueue(
+    int targetIndex, {
+    required String reason,
+  }) async {
+    final targetTrack = _queue[targetIndex];
+    await _player.seek(Duration.zero, index: targetIndex);
+    _currentIndex = targetIndex;
+    _loadedTrackKey = _trackLoadKey(targetTrack);
+    _position = Duration.zero;
+    _bufferedPosition = Duration.zero;
+    _duration = targetTrack.duration;
+    _clearLoadingState(trackId: targetTrack.id, notify: false);
+    if (!_isPlaying) {
+      _startPlayback(targetTrack, reason: reason);
+    }
+    _announceTrackChange();
   }
 
   Future<void> _stopUnlocked({required bool clearLoadedTrack}) async {

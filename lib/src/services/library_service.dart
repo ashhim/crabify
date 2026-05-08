@@ -486,6 +486,7 @@ class LibraryService extends ChangeNotifier {
   Future<void> playTracks(
     List<MusicTrack> tracks, {
     required String selectedTrackId,
+    String? selectedTrackCacheKey,
     bool shuffle = false,
     String? playlistContextId,
   }) async {
@@ -500,6 +501,11 @@ class LibraryService extends ChangeNotifier {
 
     MusicTrack? selectedTrack;
     for (final track in playableTracks) {
+      if (selectedTrackCacheKey != null &&
+          track.cacheKey == selectedTrackCacheKey) {
+        selectedTrack = track;
+        break;
+      }
       if (track.id == selectedTrackId) {
         selectedTrack = track;
         break;
@@ -519,6 +525,7 @@ class LibraryService extends ChangeNotifier {
       await _audioPlayerService.setQueue(
         playableTracks,
         initialTrackId: selectedTrack.id,
+        initialTrackCacheKey: selectedTrack.cacheKey,
         shuffle: shuffle,
       );
       if (_audioPlayerService.currentTrack?.cacheKey !=
@@ -548,6 +555,7 @@ class LibraryService extends ChangeNotifier {
       await _audioPlayerService.setQueue(
         playableTracks,
         initialTrackId: selectedTrack.id,
+        initialTrackCacheKey: selectedTrack.cacheKey,
         shuffle: true,
       );
       if (_audioPlayerService.currentTrack?.cacheKey !=
@@ -563,6 +571,7 @@ class LibraryService extends ChangeNotifier {
   Future<void> playPlaylist(
     MusicCollection playlist, {
     String? selectedTrackId,
+    String? selectedTrackCacheKey,
     bool shuffle = false,
   }) async {
     final tracks = tracksForCollection(playlist);
@@ -580,6 +589,7 @@ class LibraryService extends ChangeNotifier {
     await playTracks(
       tracks,
       selectedTrackId: startTrackId,
+      selectedTrackCacheKey: selectedTrackCacheKey,
       shuffle: shuffle,
       playlistContextId: playlist.id,
     );
@@ -641,6 +651,7 @@ class LibraryService extends ChangeNotifier {
     await playTracks(
       orderedTracks,
       selectedTrackId: orderedTracks.first.id,
+      selectedTrackCacheKey: orderedTracks.first.cacheKey,
       shuffle: false,
     );
   }
