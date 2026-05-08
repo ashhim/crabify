@@ -215,8 +215,8 @@ class CrabifyBootstrapView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final logoSize =
-        MediaQuery.sizeOf(context).shortestSide.clamp(180.0, 240.0).toDouble();
+    final screenSize = MediaQuery.sizeOf(context);
+    final logoWidth = (screenSize.shortestSide * 0.42).clamp(120.0, 168.0);
 
     return Scaffold(
       body: DecoratedBox(
@@ -232,14 +232,16 @@ class CrabifyBootstrapView extends StatelessWidget {
           ),
         ),
         child: Center(
-          child: SizedBox(
-            width: logoSize,
-            height: logoSize,
-            child: Image.asset(
-              'assets/logo.png',
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-              isAntiAlias: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: SizedBox(
+              width: logoWidth,
+              child: Image.asset(
+                'assets/logo.png',
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                isAntiAlias: true,
+              ),
             ),
           ),
         ),

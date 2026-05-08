@@ -613,6 +613,23 @@ class AudioPlayerService extends ChangeNotifier {
     );
 
     _subscriptions.add(
+      _player.currentIndexStream.listen((index) {
+        if (index == null || index < 0 || index >= _queue.length) {
+          return;
+        }
+        if (index == _currentIndex) {
+          return;
+        }
+        _currentIndex = index;
+        final track = currentTrack;
+        _loadedTrackKey = track == null ? null : _trackLoadKey(track);
+        _duration = track?.duration;
+        _clearLoadingState(trackId: track?.id, notify: false);
+        _announceTrackChange();
+      }),
+    );
+
+    _subscriptions.add(
       _player.errorStream.listen((error) {
         final track = currentTrack;
         debugPrint(
@@ -755,30 +772,38 @@ class AudioPlayerService extends ChangeNotifier {
       _bufferedPosition = Duration.zero;
       _duration = track.duration;
       _notifyUiListeners();
-      final tag = _mediaItemForTrack(track);
       Duration? loadedDuration;
-      if (track.hasValidLocalSource) {
-        final filePath = track.localPath!.trim();
-        final file = File(filePath);
-        if (!await file.exists()) {
-          throw StateError(
-            'The local audio file for ${track.title} is missing from $filePath.',
-          );
-        }
-        debugPrint(
-          '[Audio] setFilePath'
-          ' | platform=$_platformLabel'
-          ' | trackId=${track.id}'
-          ' | title=${track.title}'
-          ' | path=$filePath',
-        );
-        loadedDuration = await _withLoadTimeout(
-          _player.setFilePath(filePath, tag: tag),
-          track: track,
-          sourceDescription: filePath,
-        );
+      final hasPlayableNextTrack =
+          _queue.length > 1 &&
+          _currentIndex >= 0 &&
+          _currentIndex < _queue.length - 1;
+      if (hasPlayableNextTrack) {
+        loadedDuration = await _loadQueuedTracks(track: track);
       } else {
-        loadedDuration = await _loadRemoteTrack(track, tag: tag);
+        final tag = _mediaItemForTrack(track);
+        if (track.hasValidLocalSource) {
+          final filePath = track.localPath!.trim();
+          final file = File(filePath);
+          if (!await file.exists()) {
+            throw StateError(
+              'The local audio file for ${track.title} is missing from $filePath.',
+            );
+          }
+          debugPrint(
+            '[Audio] setFilePath'
+            ' | platform=$_platformLabel'
+            ' | trackId=${track.id}'
+            ' | title=${track.title}'
+            ' | path=$filePath',
+          );
+          loadedDuration = await _withLoadTimeout(
+            _player.setFilePath(filePath, tag: tag),
+            track: track,
+            sourceDescription: filePath,
+          );
+        } else {
+          loadedDuration = await _loadRemoteTrack(track, tag: tag);
+        }
       }
       _duration = loadedDuration ?? track.duration;
       await _applyPendingRestorePosition(track, loadedDuration);
@@ -791,6 +816,80 @@ class AudioPlayerService extends ChangeNotifier {
     if (autoPlay) {
       _startPlayback(track, reason: reason);
     }
+  }
+
+  Future<Duration?> _loadQueuedTracks({required MusicTrack track}) async {
+    final preparedQueue = await _buildPlayerQueueSources();
+    if (preparedQueue.sources.length <= 1) {
+      return track.hasValidLocalSource
+          ? _withLoadTimeout(
+            _player.setFilePath(
+              track.localPath!.trim(),
+              tag: _mediaItemForTrack(track),
+            ),
+            track: track,
+            sourceDescription: track.localPath!.trim(),
+          )
+          : _loadRemoteTrack(track, tag: _mediaItemForTrack(track));
+    }
+
+    debugPrint(
+      '[Audio] setAudioSources'
+      ' | platform=$_platformLabel'
+      ' | queueLength=${preparedQueue.sources.length}'
+      ' | currentIndex=${preparedQueue.initialIndex}'
+      ' | trackId=${track.id}'
+      ' | title=${track.title}',
+    );
+    return _withLoadTimeout(
+      _player.setAudioSources(
+        preparedQueue.sources,
+        initialIndex: preparedQueue.initialIndex,
+      ),
+      track: track,
+      sourceDescription: 'queue',
+    );
+  }
+
+  Future<_PreparedPlayerQueue> _buildPlayerQueueSources() async {
+    final sources = <AudioSource>[];
+    int? initialIndex;
+
+    for (var index = 0; index < _queue.length; index++) {
+      final track = _queue[index];
+      if (!_canQueueTrack(track)) {
+        continue;
+      }
+
+      AudioSource? source;
+      if (track.hasValidLocalSource) {
+        final filePath = track.localPath!.trim();
+        if (!await File(filePath).exists()) {
+          continue;
+        }
+        source = AudioSource.file(filePath, tag: _mediaItemForTrack(track));
+      } else {
+        final streamUrl = _streamUrlForTrack(track);
+        source = AudioSource.uri(
+          Uri.parse(streamUrl),
+          tag: _mediaItemForTrack(track),
+        );
+      }
+
+      if (index == _currentIndex) {
+        initialIndex = sources.length;
+      }
+      sources.add(source);
+    }
+
+    if (sources.isEmpty || initialIndex == null) {
+      throw StateError('No playable tracks are available in this queue.');
+    }
+
+    return _PreparedPlayerQueue(
+      sources: sources,
+      initialIndex: initialIndex,
+    );
   }
 
   Future<Duration?> _loadRemoteTrack(
@@ -1546,5 +1645,15 @@ class _PreparedQueue {
   const _PreparedQueue({required this.tracks, required this.initialIndex});
 
   final List<MusicTrack> tracks;
+  final int initialIndex;
+}
+
+class _PreparedPlayerQueue {
+  const _PreparedPlayerQueue({
+    required this.sources,
+    required this.initialIndex,
+  });
+
+  final List<AudioSource> sources;
   final int initialIndex;
 }
