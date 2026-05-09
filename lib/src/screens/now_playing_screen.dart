@@ -195,60 +195,68 @@ class _PlaybackStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AudioPlayerService>(
-      builder: (context, audio, _) {
-        final widgets = <Widget>[];
-        if (audio.lastErrorMessage != null) {
-          widgets.addAll(<Widget>[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: CrabifyColors.surface,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: CrabifyColors.border),
-              ),
-              child: Text(
-                audio.lastErrorMessage!,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: CrabifyColors.dangerSoft,
-                ),
+    final audioState = context.select<
+      AudioPlayerService,
+      ({String? lastErrorMessage, bool isLoading, String? loadingTrackId})
+    >(
+      (audio) => (
+        lastErrorMessage: audio.lastErrorMessage,
+        isLoading: audio.isLoading,
+        loadingTrackId: audio.loadingTrackId,
+      ),
+    );
+    final widgets = <Widget>[];
+    if (audioState.lastErrorMessage != null) {
+      widgets.addAll(<Widget>[
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: CrabifyColors.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: CrabifyColors.border),
+          ),
+          child: Text(
+            audioState.lastErrorMessage!,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: CrabifyColors.dangerSoft,
+            ),
+          ),
+        ),
+      ]);
+    }
+
+    final busyForCurrentTrack =
+        audioState.isLoading && audioState.loadingTrackId == track.id;
+    if (busyForCurrentTrack) {
+      widgets.addAll(<Widget>[
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Loading ${track.title}...',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(
+                color: CrabifyColors.textSecondary,
               ),
             ),
-          ]);
-        }
+          ],
+        ),
+      ]);
+    }
 
-        final busyForCurrentTrack =
-            audio.isLoading && audio.loadingTrackId == track.id;
-        if (busyForCurrentTrack) {
-          widgets.addAll(<Widget>[
-            const SizedBox(height: 10),
-            Row(
-              children: <Widget>[
-                const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  'Loading ${track.title}...',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: CrabifyColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ]);
-        }
-
-        if (widgets.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: widgets,
-        );
-      },
+    if (widgets.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: widgets,
     );
   }
 }
@@ -264,52 +272,65 @@ class _PlaybackProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AudioPlayerService>(
-      builder: (context, audio, _) {
-        final total =
-            audio.duration.inMilliseconds <= 0
-                ? (track.duration?.inMilliseconds ?? 1)
-                : audio.duration.inMilliseconds;
-        final currentValue = audio.position.inMilliseconds.clamp(0, total);
-        final busyForCurrentTrack =
-            audio.isLoading && audio.loadingTrackId == track.id;
+    final audioState = context.select<
+      AudioPlayerService,
+      ({
+        Duration position,
+        Duration duration,
+        bool isLoading,
+        String? loadingTrackId,
+      })
+    >(
+      (audio) => (
+        position: audio.position,
+        duration: audio.duration,
+        isLoading: audio.isLoading,
+        loadingTrackId: audio.loadingTrackId,
+      ),
+    );
+    final audio = context.read<AudioPlayerService>();
+    final total =
+        audioState.duration.inMilliseconds <= 0
+            ? (track.duration?.inMilliseconds ?? 1)
+            : audioState.duration.inMilliseconds;
+    final currentValue = audioState.position.inMilliseconds.clamp(0, total);
+    final busyForCurrentTrack =
+        audioState.isLoading && audioState.loadingTrackId == track.id;
 
-        return Column(
-          children: <Widget>[
-            Slider(
-              value: currentValue.toDouble(),
-              min: 0,
-              max: total.toDouble(),
-              onChanged:
-                  busyForCurrentTrack
-                      ? null
-                      : (value) => audio.seek(
-                        Duration(milliseconds: value.round()),
-                      ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: <Widget>[
-                  Text(
-                    formatDuration(audio.position),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: CrabifyColors.textSecondary,
-                    ),
+    return Column(
+      children: <Widget>[
+        Slider(
+          value: currentValue.toDouble(),
+          min: 0,
+          max: total.toDouble(),
+          onChanged:
+              busyForCurrentTrack
+                  ? null
+                  : (value) => audio.seek(
+                    Duration(milliseconds: value.round()),
                   ),
-                  Text(
-                    formatDuration(audio.duration),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: CrabifyColors.textSecondary,
-                    ),
-                  ),
-                ],
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              Text(
+                formatDuration(audioState.position),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: CrabifyColors.textSecondary,
+                ),
               ),
-            ),
-          ],
-        );
-      },
+              Text(
+                formatDuration(audioState.duration),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: CrabifyColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -319,78 +340,99 @@ class _PlaybackControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AudioPlayerService>(
-      builder: (context, audio, _) {
-        final track = audio.currentTrack;
-        final busyForCurrentTrack =
-            track != null && audio.isLoading && audio.loadingTrackId == track.id;
+    final audioState = context.select<
+      AudioPlayerService,
+      ({
+        String? currentTrackId,
+        bool isLoading,
+        String? loadingTrackId,
+        bool shuffleEnabled,
+        bool isPlaying,
+        bool canStop,
+        TrackRepeatMode repeatMode,
+      })
+    >(
+      (audio) => (
+        currentTrackId: audio.currentTrack?.id,
+        isLoading: audio.isLoading,
+        loadingTrackId: audio.loadingTrackId,
+        shuffleEnabled: audio.shuffleEnabled,
+        isPlaying: audio.isPlaying,
+        canStop: audio.canStop,
+        repeatMode: audio.repeatMode,
+      ),
+    );
+    final audio = context.read<AudioPlayerService>();
+    final busyForCurrentTrack =
+        audioState.currentTrackId != null &&
+        audioState.isLoading &&
+        audioState.loadingTrackId == audioState.currentTrackId;
 
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: <Widget>[
-            IconButton(
-              onPressed: busyForCurrentTrack ? null : audio.toggleShuffle,
-              icon: Icon(
-                Icons.shuffle_rounded,
-                color:
-                    audio.shuffleEnabled
-                        ? CrabifyColors.accent
-                        : CrabifyColors.textPrimary,
-              ),
-            ),
-            IconButton(
-              onPressed: busyForCurrentTrack ? null : audio.previous,
-              iconSize: 36,
-              icon: const Icon(Icons.skip_previous_rounded),
-            ),
-            IconButton.filled(
-              onPressed: busyForCurrentTrack ? null : audio.togglePlayback,
-              style: IconButton.styleFrom(
-                backgroundColor: CrabifyColors.accent,
-                foregroundColor: Colors.black,
-                fixedSize: const Size.square(72),
-              ),
-              icon:
-                  busyForCurrentTrack
-                      ? const SizedBox.square(
-                        dimension: 30,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.6,
-                          color: Colors.black,
-                        ),
-                      )
-                      : Icon(
-                        audio.isPlaying
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                        size: 40,
-                      ),
-            ),
-            IconButton(
-              onPressed: busyForCurrentTrack ? null : audio.next,
-              iconSize: 36,
-              icon: const Icon(Icons.skip_next_rounded),
-            ),
-            IconButton(
-              onPressed: busyForCurrentTrack ? null : audio.stop,
-              iconSize: 30,
-              icon: const Icon(Icons.stop_rounded),
-            ),
-            IconButton(
-              onPressed: busyForCurrentTrack ? null : audio.cycleLoopMode,
-              icon: Icon(
-                audio.repeatMode == TrackRepeatMode.loop
-                    ? Icons.repeat_one_rounded
-                    : Icons.repeat_rounded,
-                color:
-                    audio.repeatMode == TrackRepeatMode.off
-                        ? CrabifyColors.textPrimary
-                        : CrabifyColors.accent,
-              ),
-            ),
-          ],
-        );
-      },
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: <Widget>[
+        IconButton(
+          onPressed: busyForCurrentTrack ? null : audio.toggleShuffle,
+          icon: Icon(
+            Icons.shuffle_rounded,
+            color:
+                audioState.shuffleEnabled
+                    ? CrabifyColors.accent
+                    : CrabifyColors.textPrimary,
+          ),
+        ),
+        IconButton(
+          onPressed: busyForCurrentTrack ? null : audio.previous,
+          iconSize: 36,
+          icon: const Icon(Icons.skip_previous_rounded),
+        ),
+        IconButton.filled(
+          onPressed: busyForCurrentTrack ? null : audio.togglePlayback,
+          style: IconButton.styleFrom(
+            backgroundColor: CrabifyColors.accent,
+            foregroundColor: Colors.black,
+            fixedSize: const Size.square(72),
+          ),
+          icon:
+              busyForCurrentTrack
+                  ? const SizedBox.square(
+                    dimension: 30,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.6,
+                      color: Colors.black,
+                    ),
+                  )
+                  : Icon(
+                    audioState.isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 40,
+                  ),
+        ),
+        IconButton(
+          onPressed: busyForCurrentTrack ? null : audio.next,
+          iconSize: 36,
+          icon: const Icon(Icons.skip_next_rounded),
+        ),
+        IconButton(
+          onPressed:
+              busyForCurrentTrack || !audioState.canStop ? null : audio.stop,
+          iconSize: 30,
+          icon: const Icon(Icons.stop_rounded),
+        ),
+        IconButton(
+          onPressed: busyForCurrentTrack ? null : audio.cycleLoopMode,
+          icon: Icon(
+            audioState.repeatMode == TrackRepeatMode.loop
+                ? Icons.repeat_one_rounded
+                : Icons.repeat_rounded,
+            color:
+                audioState.repeatMode == TrackRepeatMode.off
+                    ? CrabifyColors.textPrimary
+                    : CrabifyColors.accent,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -400,7 +442,13 @@ class _QueueSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final audio = context.watch<AudioPlayerService>();
+    context.select<AudioPlayerService, ({int queueVersion, int currentIndex})>(
+      (audio) => (
+        queueVersion: audio.queueVersion,
+        currentIndex: audio.currentIndex,
+      ),
+    );
+    final audio = context.read<AudioPlayerService>();
     final queue = audio.queue;
     final hasUpcomingTracks = queue.length > 1;
     final listHeight = math.min(queue.length * 76.0, 340.0).toDouble();
@@ -476,62 +524,65 @@ class _QueueSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AudioPlayerService>(
-      builder: (context, audio, _) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  'Queue',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Tap to jump, long press and drag to reorder, or remove tracks you no longer want.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: CrabifyColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  height: 420,
-                  child: ReorderableListView.builder(
-                    buildDefaultDragHandles: false,
-                    primary: false,
-                    physics: const ClampingScrollPhysics(),
-                    itemCount: audio.queue.length,
-                    onReorder: (oldIndex, newIndex) {
-                      context.read<LibraryService>().moveQueueItem(
-                        oldIndex,
-                        newIndex,
-                      );
-                    },
-                    itemBuilder: (context, index) {
-                      final track = audio.queue[index];
-                      final active = index == audio.currentIndex;
-                      return ReorderableDelayedDragStartListener(
-                        key: ValueKey(audio.queueEntryIdAt(index)),
-                        index: index,
-                        child: _QueueListTile(
-                          track: track,
-                          index: index,
-                          active: active,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
+    context.select<AudioPlayerService, ({int queueVersion, int currentIndex})>(
+      (audio) => (
+        queueVersion: audio.queueVersion,
+        currentIndex: audio.currentIndex,
+      ),
+    );
+    final audio = context.read<AudioPlayerService>();
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              'Queue',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
-          ),
-        );
-      },
+            const SizedBox(height: 6),
+            Text(
+              'Tap to jump, long press and drag to reorder, or remove tracks you no longer want.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: CrabifyColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 420,
+              child: ReorderableListView.builder(
+                buildDefaultDragHandles: false,
+                primary: false,
+                physics: const ClampingScrollPhysics(),
+                itemCount: audio.queue.length,
+                onReorder: (oldIndex, newIndex) {
+                  context.read<LibraryService>().moveQueueItem(
+                    oldIndex,
+                    newIndex,
+                  );
+                },
+                itemBuilder: (context, index) {
+                  final track = audio.queue[index];
+                  final active = index == audio.currentIndex;
+                  return ReorderableDelayedDragStartListener(
+                    key: ValueKey(audio.queueEntryIdAt(index)),
+                    index: index,
+                    child: _QueueListTile(
+                      track: track,
+                      index: index,
+                      active: active,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

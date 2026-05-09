@@ -31,7 +31,7 @@ class MiniPlayer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            _MiniPlayerProgress(track: track),
+            const _MiniPlayerProgress(),
             Padding(
               padding: const EdgeInsets.all(10),
               child: _MiniPlayerContent(track: track),
@@ -44,9 +44,7 @@ class MiniPlayer extends StatelessWidget {
 }
 
 class _MiniPlayerProgress extends StatelessWidget {
-  const _MiniPlayerProgress({required this.track});
-
-  final MusicTrack track;
+  const _MiniPlayerProgress();
 
   @override
   Widget build(BuildContext context) {
@@ -74,73 +72,86 @@ class _MiniPlayerContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AudioPlayerService>(
-      builder: (context, audioPlayerService, _) {
-        final busyForCurrentTrack =
-            audioPlayerService.isLoading &&
-            audioPlayerService.loadingTrackId == track.id;
-        final subtitle =
-            audioPlayerService.lastErrorMessage ??
-            (busyForCurrentTrack ? 'Connecting to audio...' : null);
-        final subtitleColor =
-            audioPlayerService.lastErrorMessage != null
-                ? CrabifyColors.dangerSoft
-                : CrabifyColors.textSecondary;
+    final audioState = context.select<
+      AudioPlayerService,
+      ({
+        bool isLoading,
+        String? loadingTrackId,
+        String? lastErrorMessage,
+        bool isPlaying,
+        bool canStop,
+      })
+    >(
+      (audio) => (
+        isLoading: audio.isLoading,
+        loadingTrackId: audio.loadingTrackId,
+        lastErrorMessage: audio.lastErrorMessage,
+        isPlaying: audio.isPlaying,
+        canStop: audio.canStop,
+      ),
+    );
+    final audioPlayerService = context.read<AudioPlayerService>();
+    final busyForCurrentTrack =
+        audioState.isLoading && audioState.loadingTrackId == track.id;
+    final subtitle =
+        audioState.lastErrorMessage ??
+        (busyForCurrentTrack ? 'Connecting to audio...' : null);
+    final subtitleColor =
+        audioState.lastErrorMessage != null
+            ? CrabifyColors.dangerSoft
+            : CrabifyColors.textSecondary;
 
-        return Row(
-          children: <Widget>[
-            ArtworkTile(
-              seed: track.cacheKey,
-              artworkPath: track.artworkPath,
-              artworkUrl: track.artworkUrl,
-              size: 46,
-              borderRadius: BorderRadius.circular(12),
+    return Row(
+      children: <Widget>[
+        ArtworkTile(
+          seed: track.cacheKey,
+          artworkPath: track.artworkPath,
+          artworkUrl: track.artworkUrl,
+          size: 46,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _TrackText(
+            track: track,
+            statusMessage: subtitle,
+            statusColor: subtitleColor,
+          ),
+        ),
+        IconButton(
+          onPressed: busyForCurrentTrack ? null : audioPlayerService.previous,
+          icon: const Icon(Icons.skip_previous_rounded),
+        ),
+        if (busyForCurrentTrack)
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: SizedBox.square(
+              dimension: 26,
+              child: CircularProgressIndicator(strokeWidth: 2.3),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _TrackText(
-                track: track,
-                statusMessage: subtitle,
-                statusColor: subtitleColor,
-              ),
+          )
+        else
+          IconButton(
+            onPressed: audioPlayerService.togglePlayback,
+            icon: Icon(
+              audioState.isPlaying
+                  ? Icons.pause_circle_filled_rounded
+                  : Icons.play_circle_fill_rounded,
+              size: 34,
             ),
-            IconButton(
-              onPressed:
-                  busyForCurrentTrack ? null : audioPlayerService.previous,
-              icon: const Icon(Icons.skip_previous_rounded),
-            ),
-            if (busyForCurrentTrack)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: SizedBox.square(
-                  dimension: 26,
-                  child: CircularProgressIndicator(strokeWidth: 2.3),
-                ),
-              )
-            else
-              IconButton(
-                onPressed: audioPlayerService.togglePlayback,
-                icon: Icon(
-                  audioPlayerService.isPlaying
-                      ? Icons.pause_circle_filled_rounded
-                      : Icons.play_circle_fill_rounded,
-                  size: 34,
-                ),
-              ),
-            IconButton(
-              onPressed: busyForCurrentTrack ? null : audioPlayerService.next,
-              icon: const Icon(Icons.skip_next_rounded),
-            ),
-            IconButton(
-              onPressed:
-                  busyForCurrentTrack || !audioPlayerService.canStop
-                      ? null
-                      : audioPlayerService.stop,
-              icon: const Icon(Icons.stop_rounded),
-            ),
-          ],
-        );
-      },
+          ),
+        IconButton(
+          onPressed: busyForCurrentTrack ? null : audioPlayerService.next,
+          icon: const Icon(Icons.skip_next_rounded),
+        ),
+        IconButton(
+          onPressed:
+              busyForCurrentTrack || !audioState.canStop
+                  ? null
+                  : audioPlayerService.stop,
+          icon: const Icon(Icons.stop_rounded),
+        ),
+      ],
     );
   }
 }
