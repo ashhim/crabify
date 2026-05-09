@@ -734,6 +734,7 @@ class _QueueListTile extends StatelessWidget {
 }
 
 
+
 class _AnimatedTrackText extends StatelessWidget {
   const _AnimatedTrackText({
     required this.text,
