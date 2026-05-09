@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
@@ -37,6 +38,15 @@ class LibraryService extends ChangeNotifier {
       if (track == null) {
         return;
       }
+      final now = DateTime.now();
+      if (_lastRecentlyPlayedCacheKey == track.cacheKey &&
+          _lastRecentlyPlayedAt != null &&
+          now.difference(_lastRecentlyPlayedAt!) <
+              const Duration(seconds: 2)) {
+        return;
+      }
+      _lastRecentlyPlayedCacheKey = track.cacheKey;
+      _lastRecentlyPlayedAt = now;
       unawaited(markRecentlyPlayed(track.id, trackSnapshot: track));
     };
     _audioPlayerService.addBackgroundStateListener(_handlePlayerSessionChanged);
@@ -49,6 +59,10 @@ class LibraryService extends ChangeNotifier {
   final DeviceMediaScannerService _deviceMediaScannerService;
   final Random _random = Random();
   Timer? _playerSessionPersistDebounce;
+  Timer? _statePersistDebounce;
+  String? _lastPersistedPlayerSessionJson;
+  String? _lastRecentlyPlayedCacheKey;
+  DateTime? _lastRecentlyPlayedAt;
   bool _starterPlaylistsInitialized = false;
 
   bool isLoading = true;
@@ -151,6 +165,8 @@ class LibraryService extends ChangeNotifier {
   Future<void> initialize() async {
     final restoredState = _localStorageService.loadState();
     final restoredPlayerSession = _localStorageService.loadPlayerSession();
+    _lastPersistedPlayerSessionJson =
+        restoredPlayerSession.isEmpty ? null : jsonEncode(restoredPlayerSession);
     _restoreState(restoredState);
     _applyTrackOverrides();
     _syncArtistPlaylists();
@@ -177,13 +193,19 @@ class LibraryService extends ChangeNotifier {
 
   void _handlePlayerSessionChanged() {
     _playerSessionPersistDebounce?.cancel();
-    _playerSessionPersistDebounce = Timer(const Duration(milliseconds: 900), () {
+    _playerSessionPersistDebounce = Timer(const Duration(milliseconds: 2500), () {
       unawaited(_persistPlayerSession());
     });
   }
 
-  Future<void> _persistPlayerSession() {
-    return _localStorageService.savePlayerSession(_playerSessionToJson());
+  Future<void> _persistPlayerSession() async {
+    final session = _playerSessionToJson();
+    final encoded = session == null ? null : jsonEncode(session);
+    if (encoded == _lastPersistedPlayerSessionJson) {
+      return;
+    }
+    await _localStorageService.savePlayerSession(session);
+    _lastPersistedPlayerSessionJson = encoded;
   }
 
   Future<void> persistPlayerSessionNow() async {
@@ -251,6 +273,7 @@ class LibraryService extends ChangeNotifier {
   @override
   void dispose() {
     _playerSessionPersistDebounce?.cancel();
+    _statePersistDebounce?.cancel();
     _audioPlayerService.removeBackgroundStateListener(
       _handlePlayerSessionChanged,
     );
@@ -465,8 +488,8 @@ class LibraryService extends ChangeNotifier {
       _updateArtistLastPlayedCover(track);
     }
     _cleanupDanglingTrackReferences();
-    await _persistState();
     notifyListeners();
+    _scheduleStatePersist();
   }
 
   Future<void> removeRecentTrack(String trackId) async {
@@ -538,7 +561,6 @@ class LibraryService extends ChangeNotifier {
           selectedTrack.cacheKey) {
         return;
       }
-      await markRecentlyPlayed(selectedTrack.id, trackSnapshot: selectedTrack);
     } catch (error) {
       debugPrint('[Audio] Failed to play track queue: $error');
     }
@@ -568,7 +590,6 @@ class LibraryService extends ChangeNotifier {
           selectedTrack.cacheKey) {
         return;
       }
-      await markRecentlyPlayed(selectedTrack.id, trackSnapshot: selectedTrack);
     } catch (error) {
       debugPrint('[Audio] Failed to play shuffled track queue: $error');
     }
@@ -2587,6 +2608,7 @@ class LibraryService extends ChangeNotifier {
   }
 
   Future<void> _persistState() {
+    _statePersistDebounce?.cancel();
     return _localStorageService.saveState(<String, dynamic>{
       'onlineTracks': onlineTracks.map((track) => track.toJson()).toList(),
       'importedTracks': importedTracks.map((track) => track.toJson()).toList(),
@@ -2606,6 +2628,15 @@ class LibraryService extends ChangeNotifier {
       'starterPlaylistsInitialized': _starterPlaylistsInitialized,
       'selectedSearchTag': selectedSearchTag,
       'selectedLibraryFilter': selectedLibraryFilter,
+    });
+  }
+
+  void _scheduleStatePersist({
+    Duration delay = const Duration(milliseconds: 1800),
+  }) {
+    _statePersistDebounce?.cancel();
+    _statePersistDebounce = Timer(delay, () {
+      unawaited(_persistState());
     });
   }
 

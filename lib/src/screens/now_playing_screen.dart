@@ -261,7 +261,7 @@ class _PlaybackStatus extends StatelessWidget {
   }
 }
 
-class _PlaybackProgress extends StatelessWidget {
+class _PlaybackProgress extends StatefulWidget {
   const _PlaybackProgress({
     required this.track,
     required this.formatDuration,
@@ -269,6 +269,13 @@ class _PlaybackProgress extends StatelessWidget {
 
   final MusicTrack track;
   final String Function(Duration duration) formatDuration;
+
+  @override
+  State<_PlaybackProgress> createState() => _PlaybackProgressState();
+}
+
+class _PlaybackProgressState extends State<_PlaybackProgress> {
+  double? _dragValueMillis;
 
   @override
   Widget build(BuildContext context) {
@@ -291,24 +298,43 @@ class _PlaybackProgress extends StatelessWidget {
     final audio = context.read<AudioPlayerService>();
     final total =
         audioState.duration.inMilliseconds <= 0
-            ? (track.duration?.inMilliseconds ?? 1)
+            ? (widget.track.duration?.inMilliseconds ?? 1)
             : audioState.duration.inMilliseconds;
     final currentValue = audioState.position.inMilliseconds.clamp(0, total);
+    final effectiveValue =
+        _dragValueMillis == null
+            ? currentValue.toDouble()
+            : _dragValueMillis!.clamp(0.0, total.toDouble()).toDouble();
     final busyForCurrentTrack =
-        audioState.isLoading && audioState.loadingTrackId == track.id;
+        audioState.isLoading && audioState.loadingTrackId == widget.track.id;
+    final displayedPosition = Duration(
+      milliseconds: effectiveValue.round(),
+    );
 
     return Column(
       children: <Widget>[
         Slider(
-          value: currentValue.toDouble(),
+          value: effectiveValue,
           min: 0,
           max: total.toDouble(),
+          onChangeStart:
+              busyForCurrentTrack
+                  ? null
+                  : (value) => setState(() => _dragValueMillis = value),
           onChanged:
               busyForCurrentTrack
                   ? null
-                  : (value) => audio.seek(
-                    Duration(milliseconds: value.round()),
-                  ),
+                  : (value) => setState(() => _dragValueMillis = value),
+          onChangeEnd:
+              busyForCurrentTrack
+                  ? null
+                  : (value) async {
+                    final target = Duration(milliseconds: value.round());
+                    if (mounted) {
+                      setState(() => _dragValueMillis = null);
+                    }
+                    await audio.seek(target);
+                  },
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -316,13 +342,13 @@ class _PlaybackProgress extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               Text(
-                formatDuration(audioState.position),
+                widget.formatDuration(displayedPosition),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: CrabifyColors.textSecondary,
                 ),
               ),
               Text(
-                formatDuration(audioState.duration),
+                widget.formatDuration(audioState.duration),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: CrabifyColors.textSecondary,
                 ),
