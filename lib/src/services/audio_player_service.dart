@@ -250,6 +250,11 @@ class AudioPlayerService extends ChangeNotifier {
     final previousWasPlaying = _isPlaying;
     final previousPosition = _position;
     final selectedTrack = effectiveQueue.tracks[effectiveQueue.initialIndex];
+    final canFastSwitchWithinLoadedQueue =
+        !shuffle &&
+        _canUseLoadedQueuePlaylist &&
+        _matchesQueueOrder(effectiveQueue.tracks) &&
+        currentTrack?.cacheKey != selectedTrack.cacheKey;
 
     final started = await _runPlayerCommand<bool>(
       'set queue',
@@ -257,7 +262,9 @@ class AudioPlayerService extends ChangeNotifier {
       markLoading: true,
       () async {
         _queue = effectiveQueue.tracks;
-        _queueEntryIds = effectiveQueue.entryIds;
+        if (!canFastSwitchWithinLoadedQueue) {
+          _queueEntryIds = effectiveQueue.entryIds;
+        }
         _bumpQueueVersion();
         _currentIndex = effectiveQueue.initialIndex;
         _shuffleEnabled = shuffle;
@@ -265,6 +272,13 @@ class AudioPlayerService extends ChangeNotifier {
           moveCurrentToFront: _shuffleEnabled,
           reshuffleTail: _shuffleEnabled,
         );
+        if (canFastSwitchWithinLoadedQueue) {
+          await _switchToQueueIndex(
+            effectiveQueue.initialIndex,
+            reason: 'setQueue-fast-switch',
+          );
+          return true;
+        }
         await _loadCurrentTrack(
           autoPlay: autoPlay,
           forceReload: true,
@@ -509,6 +523,8 @@ class AudioPlayerService extends ChangeNotifier {
           _currentIndex += 1;
         }
         _refreshShuffleOrder();
+        _notifyUiListeners();
+        _notifyBackgroundStateListeners();
         if (canMutateQueueInPlace) {
           await _player.moveAudioSource(oldIndex, adjustedIndex);
         } else {
@@ -1557,6 +1573,18 @@ class AudioPlayerService extends ChangeNotifier {
     return track.hasValidLocalSource
         ? '${track.id}:${track.localPath}'
         : '${track.id}:${_audiusApiService.resolveStreamUrl(track)}';
+  }
+
+  bool _matchesQueueOrder(List<MusicTrack> tracks) {
+    if (_queue.length != tracks.length) {
+      return false;
+    }
+    for (var index = 0; index < tracks.length; index += 1) {
+      if (_queue[index].cacheKey != tracks[index].cacheKey) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Duration _clampRestorePosition(

@@ -40,128 +40,225 @@ class NowPlayingScreen extends StatelessWidget {
     final downloadDisabledReason = context.select<LibraryService, String?>(
       (service) => service.downloadDisabledReason(track),
     );
+    final paletteFuture = resolveArtworkThemePalette(
+      seed: track.cacheKey,
+      artworkPath: track.artworkPath,
+      artworkUrl: track.artworkUrl,
+    );
 
-    return Scaffold(
-      backgroundColor: CrabifyColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        leading: IconButton(
-          onPressed: () => Navigator.of(context).pop(),
-          icon: const Icon(Icons.expand_more_rounded),
-        ),
-        title: const Text('Now playing'),
-        centerTitle: true,
-        actions: <Widget>[
-          IconButton(
-            onPressed: () => _showQueue(context),
-            icon: const Icon(Icons.queue_music_rounded),
-          ),
-          IconButton(
-            onPressed: () => showTrackActionsSheet(context, track: track),
-            icon: const Icon(Icons.more_horiz_rounded),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        top: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-          children: <Widget>[
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final artworkSize = constraints.maxWidth;
-                return ArtworkTile(
-                  seed: track.cacheKey,
-                  artworkPath: track.artworkPath,
-                  artworkUrl: track.artworkUrl,
-                  size: artworkSize,
-                  borderRadius: BorderRadius.circular(28),
-                  icon: Icons.waves_rounded,
-                );
-              },
+    return FutureBuilder<ArtworkThemePalette>(
+      future: paletteFuture,
+      initialData: artworkThemePaletteForSeed(track.cacheKey),
+      builder: (context, snapshot) {
+        final palette =
+            snapshot.data ?? artworkThemePaletteForSeed(track.cacheKey);
+        return Scaffold(
+          backgroundColor: CrabifyColors.background,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            leading: IconButton(
+              style: _hoverIconButtonStyle(
+                hoverColor: palette.controlColor,
+                foregroundColor: palette.controlColor,
+              ),
+              onPressed: () => _showQueue(context),
+              icon: const Icon(Icons.queue_music_rounded),
             ),
-            const SizedBox(height: 22),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            title: const Text('Now playing'),
+            centerTitle: true,
+            actions: <Widget>[
+              IconButton(
+                style: _hoverIconButtonStyle(
+                  hoverColor: palette.controlColor,
+                  foregroundColor: CrabifyColors.textPrimary,
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.expand_more_rounded),
+              ),
+              IconButton(
+                style: _hoverIconButtonStyle(
+                  hoverColor: palette.controlColor,
+                  foregroundColor: CrabifyColors.textPrimary,
+                ),
+                onPressed: () => showTrackActionsSheet(context, track: track),
+                icon: const Icon(Icons.more_horiz_rounded),
+              ),
+            ],
+          ),
+          body: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final contentMaxWidth =
+                      math.min(constraints.maxWidth, 560.0).toDouble();
+                  final artworkSize = math.min(
+                    contentMaxWidth,
+                    constraints.maxHeight * 0.44,
+                  ).clamp(220.0, contentMaxWidth).toDouble();
+                  final artworkSpacing = math.max(
+                    20.0,
+                    constraints.maxHeight * 0.03,
+                  );
+                  return Column(
                     children: <Widget>[
-                      Text(
-                        track.title,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        track.artistName,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(color: CrabifyColors.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed:
-                      () => library.toggleLike(
-                        track.id,
-                        trackSnapshot: track,
-                      ),
-                  icon: Icon(
-                    isLiked
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_border_rounded,
-                    color:
-                        isLiked
-                            ? CrabifyColors.accent
-                            : CrabifyColors.textPrimary,
-                  ),
-                ),
-                IconButton(
-                  tooltip: downloadDisabledReason,
-                  onPressed:
-                      downloadDisabledReason == null
-                          ? () async {
-                            try {
-                              await library.downloadTrack(track);
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(error.toString())),
-                              );
-                            }
-                          }
-                          : null,
-                  icon:
-                      downloadProgress != null
-                          ? SizedBox.square(
-                            dimension: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              value: downloadProgress,
+                      Expanded(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                            child: SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  top: math.max(8, constraints.maxHeight * 0.01),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    ArtworkTile(
+                                      seed: track.cacheKey,
+                                      artworkPath: track.artworkPath,
+                                      artworkUrl: track.artworkUrl,
+                                      size: artworkSize,
+                                      borderRadius: BorderRadius.circular(28),
+                                      icon: Icons.waves_rounded,
+                                    ),
+                                    SizedBox(height: artworkSpacing),
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: <Widget>[
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: <Widget>[
+                                              _AnimatedTrackText(
+                                                text: track.title,
+                                                maxLines: 2,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .headlineSmall
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      color: palette.titleColor,
+                                                    ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              _AnimatedTrackText(
+                                                text: track.artistName,
+                                                maxLines: 2,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                      color:
+                                                          palette.subtitleColor,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          style: _hoverIconButtonStyle(
+                                            hoverColor: palette.controlColor,
+                                            foregroundColor:
+                                                isLiked
+                                                    ? palette.controlColor
+                                                    : CrabifyColors
+                                                        .textPrimary,
+                                          ),
+                                          onPressed:
+                                              () => library.toggleLike(
+                                                track.id,
+                                                trackSnapshot: track,
+                                              ),
+                                          icon: Icon(
+                                            isLiked
+                                                ? Icons.favorite_rounded
+                                                : Icons
+                                                    .favorite_border_rounded,
+                                          ),
+                                        ),
+                                        IconButton(
+                                          style: _hoverIconButtonStyle(
+                                            hoverColor: palette.controlColor,
+                                            foregroundColor:
+                                                isDownloaded
+                                                    ? palette.controlColor
+                                                    : CrabifyColors
+                                                        .textPrimary,
+                                          ),
+                                          tooltip: downloadDisabledReason,
+                                          onPressed:
+                                              downloadDisabledReason == null
+                                                  ? () async {
+                                                    try {
+                                                      await library
+                                                          .downloadTrack(track);
+                                                    } catch (error) {
+                                                      if (!context.mounted) {
+                                                        return;
+                                                      }
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        SnackBar(
+                                                          content: Text(
+                                                            error.toString(),
+                                                          ),
+                                                        ),
+                                                      );
+                                                    }
+                                                  }
+                                                  : null,
+                                          icon:
+                                              downloadProgress != null
+                                                  ? SizedBox.square(
+                                                    dimension: 22,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          value:
+                                                              downloadProgress,
+                                                        ),
+                                                  )
+                                                  : Icon(
+                                                    isDownloaded
+                                                        ? Icons
+                                                            .download_done_rounded
+                                                        : Icons
+                                                            .download_rounded,
+                                                  ),
+                                        ),
+                                      ],
+                                    ),
+                                    _PlaybackStatus(track: track),
+                                  ],
+                                ),
+                              ),
                             ),
-                          )
-                          : Icon(
-                            isDownloaded
-                                ? Icons.download_done_rounded
-                                : Icons.download_rounded,
                           ),
-                ),
-              ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _PlaybackProgress(
+                        track: track,
+                        formatDuration: _formatDuration,
+                      ),
+                      const SizedBox(height: 18),
+                      _PlaybackControls(palette: palette),
+                    ],
+                  );
+                },
+              ),
             ),
-            _PlaybackStatus(track: track),
-            const SizedBox(height: 18),
-            _PlaybackProgress(track: track, formatDuration: _formatDuration),
-            const SizedBox(height: 10),
-            const _PlaybackControls(),
-            const SizedBox(height: 20),
-            const _QueueSection(),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -218,9 +315,9 @@ class _PlaybackStatus extends StatelessWidget {
           ),
           child: Text(
             audioState.lastErrorMessage!,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: CrabifyColors.dangerSoft,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: CrabifyColors.dangerSoft),
           ),
         ),
       ]);
@@ -240,9 +337,7 @@ class _PlaybackStatus extends StatelessWidget {
             const SizedBox(width: 12),
             Text(
               'Loading ${track.title}...',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: CrabifyColors.textSecondary,
               ),
             ),
@@ -262,10 +357,7 @@ class _PlaybackStatus extends StatelessWidget {
 }
 
 class _PlaybackProgress extends StatefulWidget {
-  const _PlaybackProgress({
-    required this.track,
-    required this.formatDuration,
-  });
+  const _PlaybackProgress({required this.track, required this.formatDuration});
 
   final MusicTrack track;
   final String Function(Duration duration) formatDuration;
@@ -307,9 +399,7 @@ class _PlaybackProgressState extends State<_PlaybackProgress> {
             : _dragValueMillis!.clamp(0.0, total.toDouble()).toDouble();
     final busyForCurrentTrack =
         audioState.isLoading && audioState.loadingTrackId == widget.track.id;
-    final displayedPosition = Duration(
-      milliseconds: effectiveValue.round(),
-    );
+    final displayedPosition = Duration(milliseconds: effectiveValue.round());
 
     return Column(
       children: <Widget>[
@@ -362,7 +452,9 @@ class _PlaybackProgressState extends State<_PlaybackProgress> {
 }
 
 class _PlaybackControls extends StatelessWidget {
-  const _PlaybackControls();
+  const _PlaybackControls({required this.palette});
+
+  final ArtworkThemePalette palette;
 
   @override
   Widget build(BuildContext context) {
@@ -393,39 +485,55 @@ class _PlaybackControls extends StatelessWidget {
         audioState.currentTrackId != null &&
         audioState.isLoading &&
         audioState.loadingTrackId == audioState.currentTrackId;
+    final controlColor = palette.controlColor;
+    final inactiveControlColor =
+        Color.lerp(CrabifyColors.textPrimary, controlColor, 0.35)!;
+    final filledForegroundColor = _playerControlForegroundColor(controlColor);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: <Widget>[
         IconButton(
+          style: _hoverIconButtonStyle(
+            hoverColor: controlColor,
+            foregroundColor:
+                audioState.shuffleEnabled ? controlColor : inactiveControlColor,
+          ),
           onPressed: busyForCurrentTrack ? null : audio.toggleShuffle,
-          icon: Icon(
-            Icons.shuffle_rounded,
+          icon: _AnimatedControlIcon(
+            icon: Icons.shuffle_rounded,
             color:
-                audioState.shuffleEnabled
-                    ? CrabifyColors.accent
-                    : CrabifyColors.textPrimary,
+                audioState.shuffleEnabled ? controlColor : inactiveControlColor,
           ),
         ),
         IconButton(
+          style: _hoverIconButtonStyle(
+            hoverColor: controlColor,
+            foregroundColor: controlColor,
+            fixedSize: const Size.square(54),
+          ),
           onPressed: busyForCurrentTrack ? null : audio.previous,
           iconSize: 36,
-          icon: const Icon(Icons.skip_previous_rounded),
+          icon: _AnimatedControlIcon(
+            icon: Icons.skip_previous_rounded,
+            color: controlColor,
+            size: 36,
+          ),
         ),
         IconButton.filled(
           onPressed: busyForCurrentTrack ? null : audio.togglePlayback,
-          style: IconButton.styleFrom(
-            backgroundColor: CrabifyColors.accent,
-            foregroundColor: Colors.black,
+          style: _filledHoverIconButtonStyle(
+            backgroundColor: controlColor,
+            foregroundColor: filledForegroundColor,
             fixedSize: const Size.square(72),
           ),
           icon:
               busyForCurrentTrack
-                  ? const SizedBox.square(
+                  ? SizedBox.square(
                     dimension: 30,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.6,
-                      color: Colors.black,
+                      color: filledForegroundColor,
                     ),
                   )
                   : Icon(
@@ -436,111 +544,55 @@ class _PlaybackControls extends StatelessWidget {
                   ),
         ),
         IconButton(
+          style: _hoverIconButtonStyle(
+            hoverColor: controlColor,
+            foregroundColor: controlColor,
+            fixedSize: const Size.square(54),
+          ),
           onPressed: busyForCurrentTrack ? null : audio.next,
           iconSize: 36,
-          icon: const Icon(Icons.skip_next_rounded),
+          icon: _AnimatedControlIcon(
+            icon: Icons.skip_next_rounded,
+            color: controlColor,
+            size: 36,
+          ),
         ),
         IconButton(
+          style: _hoverIconButtonStyle(
+            hoverColor: controlColor,
+            foregroundColor: inactiveControlColor,
+          ),
           onPressed:
               busyForCurrentTrack || !audioState.canStop ? null : audio.stop,
           iconSize: 30,
-          icon: const Icon(Icons.stop_rounded),
+          icon: _AnimatedControlIcon(
+            icon: Icons.stop_rounded,
+            color: inactiveControlColor,
+            size: 30,
+          ),
         ),
         IconButton(
+          style: _hoverIconButtonStyle(
+            hoverColor: controlColor,
+            foregroundColor:
+                audioState.repeatMode == TrackRepeatMode.off
+                    ? inactiveControlColor
+                    : controlColor,
+          ),
           onPressed: busyForCurrentTrack ? null : audio.cycleLoopMode,
-          icon: Icon(
-            audioState.repeatMode == TrackRepeatMode.loop
-                ? Icons.repeat_one_rounded
-                : Icons.repeat_rounded,
+          icon: _AnimatedControlIcon(
+            icon: switch (audioState.repeatMode) {
+              TrackRepeatMode.once => Icons.repeat_one_rounded,
+              TrackRepeatMode.loop => Icons.repeat_rounded,
+              TrackRepeatMode.off => Icons.repeat_rounded,
+            },
             color:
                 audioState.repeatMode == TrackRepeatMode.off
-                    ? CrabifyColors.textPrimary
-                    : CrabifyColors.accent,
+                    ? inactiveControlColor
+                    : controlColor,
           ),
         ),
       ],
-    );
-  }
-}
-
-class _QueueSection extends StatelessWidget {
-  const _QueueSection();
-
-  @override
-  Widget build(BuildContext context) {
-    context.select<AudioPlayerService, ({int queueVersion, int currentIndex})>(
-      (audio) => (
-        queueVersion: audio.queueVersion,
-        currentIndex: audio.currentIndex,
-      ),
-    );
-    final audio = context.read<AudioPlayerService>();
-    final queue = audio.queue;
-    final hasUpcomingTracks = queue.length > 1;
-    final listHeight = math.min(queue.length * 76.0, 340.0).toDouble();
-
-    return Container(
-      decoration: BoxDecoration(
-        color: CrabifyColors.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: CrabifyColors.border),
-      ),
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            'Queue',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            hasUpcomingTracks
-                ? 'Tap a track to jump to it. Long press and drag to reorder in real time.'
-                : 'Your queue currently ends with the current track.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: CrabifyColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 14),
-          if (!hasUpcomingTracks)
-            Text(
-              'No upcoming tracks',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: CrabifyColors.textMuted),
-            )
-          else
-            SizedBox(
-              height: listHeight,
-              child: ReorderableListView.builder(
-                buildDefaultDragHandles: false,
-                primary: false,
-                physics: const ClampingScrollPhysics(),
-                itemCount: queue.length,
-                onReorder:
-                    (oldIndex, newIndex) => context
-                        .read<LibraryService>()
-                        .moveQueueItem(oldIndex, newIndex),
-                itemBuilder: (context, index) {
-                  final item = queue[index];
-                  final active = index == audio.currentIndex;
-                  return ReorderableDelayedDragStartListener(
-                    key: ValueKey(audio.queueEntryIdAt(index)),
-                    index: index,
-                    child: _QueueListTile(
-                      track: item,
-                      index: index,
-                      active: active,
-                    ),
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
     );
   }
 }
@@ -583,7 +635,11 @@ class _QueueSheet extends StatelessWidget {
               child: ReorderableListView.builder(
                 buildDefaultDragHandles: false,
                 primary: false,
+                itemExtent: 74,
                 physics: const ClampingScrollPhysics(),
+                proxyDecorator: (child, _, _) {
+                  return Material(color: Colors.transparent, child: child);
+                },
                 itemCount: audio.queue.length,
                 onReorder: (oldIndex, newIndex) {
                   context.read<LibraryService>().moveQueueItem(
@@ -594,14 +650,11 @@ class _QueueSheet extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final track = audio.queue[index];
                   final active = index == audio.currentIndex;
-                  return ReorderableDelayedDragStartListener(
+                  return _QueueListTile(
                     key: ValueKey(audio.queueEntryIdAt(index)),
+                    track: track,
                     index: index,
-                    child: _QueueListTile(
-                      track: track,
-                      index: index,
-                      active: active,
-                    ),
+                    active: active,
                   );
                 },
               ),
@@ -615,6 +668,7 @@ class _QueueSheet extends StatelessWidget {
 
 class _QueueListTile extends StatelessWidget {
   const _QueueListTile({
+    super.key,
     required this.track,
     required this.index,
     required this.active,
@@ -626,45 +680,184 @@ class _QueueListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      key: key,
-      onTap: () => context.read<LibraryService>().playQueueItem(index),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      leading: CircleAvatar(
-        backgroundColor:
-            active ? CrabifyColors.accent : CrabifyColors.surfaceMuted,
-        child: Text(
-          '${index + 1}',
-          style: TextStyle(
-            color: active ? Colors.black : CrabifyColors.textPrimary,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-          color: active ? CrabifyColors.accent : CrabifyColors.textPrimary,
+    final indexBadge = CircleAvatar(
+      backgroundColor:
+          active ? CrabifyColors.accent : CrabifyColors.surfaceMuted,
+      child: Text(
+        '${index + 1}',
+        style: TextStyle(
+          color: active ? Colors.black : CrabifyColors.textPrimary,
           fontWeight: FontWeight.w700,
         ),
       ),
-      subtitle: Text(
-        track.artistName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          IconButton(
-            tooltip: 'Remove from queue',
-            onPressed: () => context.read<LibraryService>().removeQueueItem(index),
-            icon: const Icon(Icons.close_rounded),
+    );
+    return ReorderableDelayedDragStartListener(
+      key: key,
+      index: index,
+      child: ListTile(
+        hoverColor: CrabifyColors.accent.withValues(alpha: 0.08),
+        onTap: () => context.read<LibraryService>().playQueueItem(index),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        leading: indexBadge,
+        title: Text(
+          track.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: active ? CrabifyColors.accent : CrabifyColors.textPrimary,
+            fontWeight: FontWeight.w700,
           ),
-        ],
+        ),
+        subtitle: Text(
+          track.artistName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            IconButton(
+              style: _hoverIconButtonStyle(
+                hoverColor: CrabifyColors.accent,
+                foregroundColor: CrabifyColors.textPrimary,
+              ),
+              tooltip: 'Remove from queue',
+              onPressed:
+                  () => context.read<LibraryService>().removeQueueItem(index),
+              icon: const Icon(Icons.close_rounded),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _AnimatedTrackText extends StatelessWidget {
+  const _AnimatedTrackText({
+    required this.text,
+    required this.style,
+    this.maxLines = 1,
+  });
+
+  final String text;
+  final TextStyle? style;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<Color?>(
+      duration: const Duration(milliseconds: 260),
+      tween: ColorTween(end: style?.color ?? CrabifyColors.textPrimary),
+      builder: (context, color, _) {
+        return Text(
+          text,
+          maxLines: maxLines,
+          overflow: TextOverflow.ellipsis,
+          style: style?.copyWith(color: color),
+        );
+      },
+    );
+  }
+}
+
+class _AnimatedControlIcon extends StatelessWidget {
+  const _AnimatedControlIcon({
+    required this.icon,
+    required this.color,
+    this.size,
+  });
+
+  final IconData icon;
+  final Color color;
+  final double? size;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<Color?>(
+      duration: const Duration(milliseconds: 260),
+      tween: ColorTween(end: color),
+      builder: (context, animatedColor, _) {
+        return Icon(icon, color: animatedColor, size: size);
+      },
+    );
+  }
+}
+
+Color _playerControlForegroundColor(Color backgroundColor) {
+  return backgroundColor.computeLuminance() > 0.45
+      ? Colors.black
+      : Colors.white;
+}
+
+ButtonStyle _hoverIconButtonStyle({
+  required Color hoverColor,
+  required Color foregroundColor,
+  Size? fixedSize,
+}) {
+  return ButtonStyle(
+    foregroundColor: WidgetStatePropertyAll<Color>(foregroundColor),
+    fixedSize:
+        fixedSize == null ? null : WidgetStatePropertyAll<Size>(fixedSize),
+    padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+      EdgeInsets.all(10),
+    ),
+    visualDensity: VisualDensity.compact,
+    backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+      if (states.contains(WidgetState.disabled)) {
+        return Colors.transparent;
+      }
+      if (states.contains(WidgetState.hovered) ||
+          states.contains(WidgetState.focused)) {
+        return hoverColor.withValues(alpha: 0.12);
+      }
+      return Colors.transparent;
+    }),
+    overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
+      if (states.contains(WidgetState.hovered)) {
+        return hoverColor.withValues(alpha: 0.08);
+      }
+      if (states.contains(WidgetState.pressed)) {
+        return hoverColor.withValues(alpha: 0.18);
+      }
+      return null;
+    }),
+    shape: WidgetStatePropertyAll<OutlinedBorder>(
+      RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+    ),
+  );
+}
+
+ButtonStyle _filledHoverIconButtonStyle({
+  required Color backgroundColor,
+  required Color foregroundColor,
+  required Size fixedSize,
+}) {
+  return ButtonStyle(
+    fixedSize: WidgetStatePropertyAll<Size>(fixedSize),
+    foregroundColor: WidgetStatePropertyAll<Color>(foregroundColor),
+    padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+      EdgeInsets.all(10),
+    ),
+    visualDensity: VisualDensity.compact,
+    backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+      if (states.contains(WidgetState.disabled)) {
+        return backgroundColor.withValues(alpha: 0.32);
+      }
+      if (states.contains(WidgetState.hovered) ||
+          states.contains(WidgetState.focused)) {
+        return Color.lerp(backgroundColor, Colors.white, 0.08);
+      }
+      return backgroundColor;
+    }),
+    overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
+      if (states.contains(WidgetState.pressed)) {
+        return foregroundColor.withValues(alpha: 0.12);
+      }
+      return null;
+    }),
+    shape: WidgetStatePropertyAll<OutlinedBorder>(
+      RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+    ),
+  );
 }

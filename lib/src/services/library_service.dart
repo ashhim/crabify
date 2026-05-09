@@ -557,10 +557,7 @@ class LibraryService extends ChangeNotifier {
         initialTrackCacheKey: selectedTrack.cacheKey,
         shuffle: shuffle,
       );
-      if (_audioPlayerService.currentTrack?.cacheKey !=
-          selectedTrack.cacheKey) {
-        return;
-      }
+      await _ensureSelectedTrackActive(selectedTrack);
     } catch (error) {
       debugPrint('[Audio] Failed to play track queue: $error');
     }
@@ -586,13 +583,23 @@ class LibraryService extends ChangeNotifier {
         initialTrackCacheKey: selectedTrack.cacheKey,
         shuffle: true,
       );
-      if (_audioPlayerService.currentTrack?.cacheKey !=
-          selectedTrack.cacheKey) {
-        return;
-      }
+      await _ensureSelectedTrackActive(selectedTrack);
     } catch (error) {
       debugPrint('[Audio] Failed to play shuffled track queue: $error');
     }
+  }
+
+  Future<void> _ensureSelectedTrackActive(MusicTrack selectedTrack) async {
+    if (_audioPlayerService.currentTrack?.cacheKey == selectedTrack.cacheKey) {
+      return;
+    }
+    final queueIndex = _audioPlayerService.queue.indexWhere(
+      (track) => track.cacheKey == selectedTrack.cacheKey,
+    );
+    if (queueIndex < 0) {
+      return;
+    }
+    await _audioPlayerService.playFromQueue(queueIndex);
   }
 
   Future<void> playPlaylist(
