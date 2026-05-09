@@ -51,7 +51,6 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
-    final audio = context.watch<AudioPlayerService>();
     final query = _searchController.text.trim();
     final activeTag = _tagFromKey(library.selectedSearchTag);
 
@@ -102,7 +101,7 @@ class _SearchScreenState extends State<SearchScreen> {
               children: _browseTiles(context, activeTag),
             ),
             const SizedBox(height: 18),
-            _SearchTagContent(tag: activeTag, library: library, audio: audio),
+            _SearchTagContent(tag: activeTag, library: library),
             const SizedBox(height: 28),
             Text(
               'Popular artists',
@@ -349,15 +348,10 @@ class _SearchScreenState extends State<SearchScreen> {
 }
 
 class _SearchTagContent extends StatelessWidget {
-  const _SearchTagContent({
-    required this.tag,
-    required this.library,
-    required this.audio,
-  });
+  const _SearchTagContent({required this.tag, required this.library});
 
   final _SearchTag tag;
   final LibraryService library;
-  final AudioPlayerService audio;
 
   @override
   Widget build(BuildContext context) {
@@ -384,7 +378,7 @@ class _SearchTagContent extends StatelessWidget {
         emptyMessage: 'Tracks you play will appear here for quick access.',
       ),
       _SearchTag.playlists => _PlaylistTagSection(library: library),
-      _SearchTag.queue => _QueueTagSection(audio: audio),
+      _SearchTag.queue => const _QueueTagSection(),
     };
   }
 }
@@ -502,12 +496,17 @@ class _PlaylistTagSection extends StatelessWidget {
 }
 
 class _QueueTagSection extends StatelessWidget {
-  const _QueueTagSection({required this.audio});
-
-  final AudioPlayerService audio;
+  const _QueueTagSection();
 
   @override
   Widget build(BuildContext context) {
+    context.select<AudioPlayerService, ({int queueVersion, int currentIndex})>(
+      (audio) => (
+        queueVersion: audio.queueVersion,
+        currentIndex: audio.currentIndex,
+      ),
+    );
+    final audio = context.read<AudioPlayerService>();
     return _TagPanel(
       title: 'Queue',
       child:
