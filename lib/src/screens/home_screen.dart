@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
 import '../models/music_track.dart';
+import '../services/audio_player_service.dart';
 import '../services/library_service.dart';
 import '../services/sleep_timer_service.dart';
 import '../theme/crabify_theme.dart';
@@ -316,7 +317,7 @@ class _TopBar extends StatelessWidget {
             }
           },
           child: Image.asset(
-            'assets/logo.png',
+            'assets/icon/logo.png',
             width: 30,
             height: 30,
             fit: BoxFit.contain,
@@ -468,6 +469,16 @@ class _PlaylistCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final library = context.read<LibraryService>();
     final tracks = library.tracksForCollection(collection);
+    final currentTrackCacheKey = context.select<AudioPlayerService, String?>(
+      (audio) => audio.currentTrack?.cacheKey,
+    );
+    final isPlaying = context.select<AudioPlayerService, bool>(
+      (audio) => audio.isPlaying,
+    );
+    final showPauseIcon =
+        isPlaying &&
+        currentTrackCacheKey != null &&
+        tracks.any((track) => track.cacheKey == currentTrackCacheKey);
 
     return SizedBox(
       width: width,
@@ -506,16 +517,13 @@ class _PlaylistCard extends StatelessWidget {
                               selectedTrackCacheKey: tracks.first.cacheKey,
                             ),
                     borderRadius: BorderRadius.circular(24),
-                    child: Container(
+                    child: SizedBox(
                       width: 48,
                       height: 48,
-                      decoration: const BoxDecoration(
-                        color: CrabifyColors.accent,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.black,
+                      child: Center(
+                        child: _HomePlaybackAssetIcon(
+                          paused: showPauseIcon,
+                        ),
                       ),
                     ),
                   ),
@@ -542,6 +550,29 @@ class _PlaylistCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _HomePlaybackAssetIcon extends StatelessWidget {
+  const _HomePlaybackAssetIcon({required this.paused});
+
+  final bool paused;
+
+  @override
+  Widget build(BuildContext context) {
+    final assetPath = paused ? 'assets/icon/=.png' : 'assets/icon/icon.png';
+    return SizedBox.square(
+      dimension: 24,
+      child: Image(
+        key: ValueKey<String>(assetPath),
+        image: AssetImage(assetPath),
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        isAntiAlias: true,
+        excludeFromSemantics: true,
+        gaplessPlayback: false,
       ),
     );
   }

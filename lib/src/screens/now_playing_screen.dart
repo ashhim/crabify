@@ -93,10 +93,11 @@ class NowPlayingScreen extends StatelessWidget {
                 builder: (context, constraints) {
                   final contentMaxWidth =
                       math.min(constraints.maxWidth, 560.0).toDouble();
-                  final artworkSize = math.min(
-                    contentMaxWidth,
-                    constraints.maxHeight * 0.44,
-                  ).clamp(220.0, contentMaxWidth).toDouble();
+                  final artworkSize =
+                      math
+                          .min(contentMaxWidth, constraints.maxHeight * 0.44)
+                          .clamp(220.0, contentMaxWidth)
+                          .toDouble();
                   final artworkSpacing = math.max(
                     20.0,
                     constraints.maxHeight * 0.03,
@@ -106,12 +107,17 @@ class NowPlayingScreen extends StatelessWidget {
                       Expanded(
                         child: Center(
                           child: ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                            constraints: BoxConstraints(
+                              maxWidth: contentMaxWidth,
+                            ),
                             child: SingleChildScrollView(
                               physics: const BouncingScrollPhysics(),
                               child: Padding(
                                 padding: EdgeInsets.only(
-                                  top: math.max(8, constraints.maxHeight * 0.01),
+                                  top: math.max(
+                                    8,
+                                    constraints.maxHeight * 0.01,
+                                  ),
                                 ),
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
@@ -168,8 +174,7 @@ class NowPlayingScreen extends StatelessWidget {
                                             foregroundColor:
                                                 isLiked
                                                     ? palette.controlColor
-                                                    : CrabifyColors
-                                                        .textPrimary,
+                                                    : CrabifyColors.textPrimary,
                                           ),
                                           onPressed:
                                               () => library.toggleLike(
@@ -179,8 +184,7 @@ class NowPlayingScreen extends StatelessWidget {
                                           icon: Icon(
                                             isLiked
                                                 ? Icons.favorite_rounded
-                                                : Icons
-                                                    .favorite_border_rounded,
+                                                : Icons.favorite_border_rounded,
                                           ),
                                         ),
                                         IconButton(
@@ -189,8 +193,7 @@ class NowPlayingScreen extends StatelessWidget {
                                             foregroundColor:
                                                 isDownloaded
                                                     ? palette.controlColor
-                                                    : CrabifyColors
-                                                        .textPrimary,
+                                                    : CrabifyColors.textPrimary,
                                           ),
                                           tooltip: downloadDisabledReason,
                                           onPressed:
@@ -520,13 +523,26 @@ class _PlaybackControls extends StatelessWidget {
             size: 36,
           ),
         ),
-        IconButton.filled(
+        IconButton(
           onPressed: busyForCurrentTrack ? null : audio.togglePlayback,
-          style: _filledHoverIconButtonStyle(
-            backgroundColor: controlColor,
-            foregroundColor: filledForegroundColor,
-            fixedSize: const Size.square(72),
+
+          style: const ButtonStyle(
+            fixedSize: WidgetStatePropertyAll(Size.square(72)),
+            padding: WidgetStatePropertyAll(EdgeInsets.zero),
+
+            overlayColor: WidgetStatePropertyAll(Colors.transparent),
+
+            splashFactory: NoSplash.splashFactory,
+
+            backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+
+            shadowColor: WidgetStatePropertyAll(Colors.transparent),
+
+            surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+
+            enableFeedback: false,
           ),
+
           icon:
               busyForCurrentTrack
                   ? SizedBox.square(
@@ -536,11 +552,43 @@ class _PlaybackControls extends StatelessWidget {
                       color: filledForegroundColor,
                     ),
                   )
-                  : Icon(
-                    audioState.isPlaying
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    size: 40,
+                  : TweenAnimationBuilder<double>(
+                    key: ValueKey<bool>(audioState.isPlaying),
+
+                    duration: const Duration(milliseconds: 420),
+
+                    curve: Curves.easeInOutCubic,
+
+                    tween: Tween<double>(
+                      begin: audioState.isPlaying ? 1 : 0,
+                      end: audioState.isPlaying ? 0 : 1,
+                    ),
+
+                    builder: (context, value, child) {
+                      final showingPause = value < 0.5;
+
+                      final rotation =
+                          showingPause
+                              ? (-90 * (1 - (value * 2))) / 360
+                              : (90 * ((value - 0.5) * 2)) / 360;
+
+                      return Transform.rotate(
+                        angle: rotation * 6.28318530718,
+
+                        child: Image.asset(
+                          showingPause
+                              ? 'assets/icon/=.png'
+                              : 'assets/icon/icon.png',
+
+                          width: 60,
+                          height: 60,
+
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                          isAntiAlias: true,
+                        ),
+                      );
+                    },
                   ),
         ),
         IconButton(
