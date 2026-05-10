@@ -9,6 +9,7 @@ import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
 import '../widgets/artwork_tile.dart';
 import '../widgets/track_actions.dart';
+import 'package:audio_visualizer/audio_visualizer.dart';
 
 class NowPlayingScreen extends StatelessWidget {
   const NowPlayingScreen({super.key});
@@ -390,67 +391,193 @@ class _PlaybackProgressState extends State<_PlaybackProgress> {
         loadingTrackId: audio.loadingTrackId,
       ),
     );
+
     final audio = context.read<AudioPlayerService>();
+
     final total =
         audioState.duration.inMilliseconds <= 0
-            ? (widget.track.duration?.inMilliseconds ?? 1)
+            ? 1
             : audioState.duration.inMilliseconds;
-    final currentValue = audioState.position.inMilliseconds.clamp(0, total);
+
     final effectiveValue =
-        _dragValueMillis == null
-            ? currentValue.toDouble()
-            : _dragValueMillis!.clamp(0.0, total.toDouble()).toDouble();
+        (_dragValueMillis ?? audioState.position.inMilliseconds)
+            .clamp(0, total)
+            .toDouble();
+
     final busyForCurrentTrack =
         audioState.isLoading && audioState.loadingTrackId == widget.track.id;
-    final displayedPosition = Duration(milliseconds: effectiveValue.round());
 
     return Column(
       children: <Widget>[
-        Slider(
-          value: effectiveValue,
-          min: 0,
-          max: total.toDouble(),
-          onChangeStart:
-              busyForCurrentTrack
-                  ? null
-                  : (value) => setState(() => _dragValueMillis = value),
-          onChanged:
-              busyForCurrentTrack
-                  ? null
-                  : (value) => setState(() => _dragValueMillis = value),
-          onChangeEnd:
-              busyForCurrentTrack
-                  ? null
-                  : (value) async {
-                    final target = Duration(milliseconds: value.round());
-                    if (mounted) {
-                      setState(() => _dragValueMillis = null);
-                    }
-                    await audio.seek(target);
-                  },
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final progress = effectiveValue / total;
+
+            final width = constraints.maxWidth;
+
+            return GestureDetector(
+              behavior: HitTestBehavior.translucent,
+
+              onHorizontalDragUpdate:
+                  busyForCurrentTrack
+                      ? null
+                      : (details) {
+                        final local = details.localPosition.dx.clamp(
+                          0.0,
+                          width,
+                        );
+
+                        final ratio = local / width;
+
+                        setState(() {
+                          _dragValueMillis = total * ratio;
+                        });
+                      },
+
+              onHorizontalDragEnd:
+                  busyForCurrentTrack
+                      ? null
+                      : (_) async {
+                        final target = Duration(
+                          milliseconds:
+                              (_dragValueMillis ?? effectiveValue).round(),
+                        );
+
+                        if (mounted) {
+                          setState(() {
+                            _dragValueMillis = null;
+                          });
+                        }
+
+                        await audio.seek(target);
+                      },
+
+              child: SizedBox(
+                height: 54,
+
+                child: CustomPaint(
+                  size: Size(width, 54),
+
+                  painter: _ECGWaveformPainter(
+                    progress: progress,
+
+                    activeColor: Colors.redAccent,
+
+                    inactiveColor: Colors.white.withValues(alpha: 0.06),
+
+                    waveform: List.generate(140, (index) {
+                      final t =
+                          (audioState.position.inMilliseconds / 180) +
+                          (index * 0.42);
+
+                      final bass = math.sin(t * 0.045);
+
+                      final mids = math.sin(t * 0.095);
+
+                      final peaks = math.sin(t * 0.16);
+
+                      return ((bass * 0.58) + (mids * 0.28) + (peaks * 0.14))
+                          .abs();
+                    }),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              Text(
-                widget.formatDuration(displayedPosition),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: CrabifyColors.textSecondary,
-                ),
+
+        const SizedBox(height: 8),
+
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+
+          children: [
+            Text(
+              widget.formatDuration(
+                Duration(milliseconds: effectiveValue.round()),
               ),
-              Text(
-                widget.formatDuration(audioState.duration),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: CrabifyColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
+            ),
+
+            Text(widget.formatDuration(audioState.duration)),
+          ],
         ),
       ],
     );
+  }
+}
+
+class _ECGWaveformPainter extends CustomPainter {
+  _ECGWaveformPainter({
+    required this.progress,
+    required this.waveform,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  final double progress;
+  final List<double> waveform;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final activePaint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.4
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.redAccent.shade100, Colors.redAccent.shade700],
+          ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    final inactivePaint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.8
+          ..strokeCap = StrokeCap.round
+          ..color = inactiveColor;
+
+    final activePath = Path();
+    final inactivePath = Path();
+
+    for (int i = 0; i < waveform.length; i++) {
+      final x = (i / (waveform.length - 1)) * size.width;
+
+      final amplitude = waveform[i] * 18;
+
+      final y = (size.height / 2) - amplitude;
+
+      if (i == 0) {
+        activePath.moveTo(x, y);
+        inactivePath.moveTo(x, y);
+      } else {
+        if ((i / waveform.length) <= progress) {
+          activePath.lineTo(x, y);
+        } else {
+          inactivePath.lineTo(x, y);
+        }
+      }
+    }
+
+    canvas.drawPath(
+      activePath,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 7
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12)
+        ..color = Colors.redAccent.withValues(alpha: 0.28),
+    );
+
+    canvas.drawPath(inactivePath, inactivePaint);
+    canvas.drawPath(activePath, activePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ECGWaveformPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.waveform != waveform;
   }
 }
 
@@ -492,6 +619,17 @@ class _PlaybackControls extends StatelessWidget {
     final inactiveControlColor =
         Color.lerp(CrabifyColors.textPrimary, controlColor, 0.35)!;
     final filledForegroundColor = _playerControlForegroundColor(controlColor);
+    final iconBaseColor = HSLColor.fromColor(controlColor);
+
+    final iconDarkColor =
+        iconBaseColor
+            .withLightness((iconBaseColor.lightness * 0.72).clamp(0.0, 1.0))
+            .toColor();
+
+    final iconLightColor =
+        iconBaseColor
+            .withLightness((iconBaseColor.lightness * 1.28).clamp(0.0, 1.0))
+            .toColor();
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -575,17 +713,26 @@ class _PlaybackControls extends StatelessWidget {
                       return Transform.rotate(
                         angle: rotation * 6.28318530718,
 
-                        child: Image.asset(
-                          showingPause
-                              ? 'assets/icon/=.png'
-                              : 'assets/icon/icon.png',
-
-                          width: 60,
-                          height: 60,
-
-                          fit: BoxFit.contain,
-                          filterQuality: FilterQuality.high,
-                          isAntiAlias: true,
+                        child: ShaderMask(
+                          blendMode: BlendMode.srcIn,
+                          shaderCallback: (bounds) {
+                            return LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: <Color>[iconDarkColor, iconLightColor],
+                              stops: const <double>[0.18, 0.86],
+                            ).createShader(bounds);
+                          },
+                          child: Image.asset(
+                            showingPause
+                                ? 'assets/icon/=.png'
+                                : 'assets/icon/icon.png',
+                            width: 45,
+                            height: 45,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.high,
+                            isAntiAlias: true,
+                          ),
                         ),
                       );
                     },
