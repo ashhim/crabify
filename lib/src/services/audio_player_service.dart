@@ -1115,7 +1115,38 @@ class AudioPlayerService extends ChangeNotifier {
       _notifyUiListeners();
       Duration? loadedDuration;
       if (_queue.length > 1) {
-        loadedDuration = await _loadQueuedTracks(track: track);
+        try {
+          loadedDuration = await _loadQueuedTracks(track: track);
+        } catch (error, stackTrace) {
+          debugPrint(
+            '[Audio] Queue source load failed; falling back to current track only'
+            ' | platform=$_platformLabel'
+            ' | trackId=${track.id}'
+            ' | title=${track.title}'
+            ' | queueLength=${_queue.length}'
+            ' | reason=$reason'
+            ' | exception=$error',
+          );
+          debugPrint('$stackTrace');
+          await _resetAfterLoadFailure(track);
+          final tag = _mediaItemForTrack(track);
+          if (track.hasValidLocalSource) {
+            final filePath = track.localPath!.trim();
+            final file = File(filePath);
+            if (!await file.exists()) {
+              throw StateError(
+                'The local audio file for ${track.title} is missing from $filePath.',
+              );
+            }
+            loadedDuration = await _withLoadTimeout(
+              _player.setFilePath(filePath, tag: tag),
+              track: track,
+              sourceDescription: filePath,
+            );
+          } else {
+            loadedDuration = await _loadRemoteTrack(track, tag: tag);
+          }
+        }
       } else {
         final tag = _mediaItemForTrack(track);
         if (track.hasValidLocalSource) {
@@ -1273,7 +1304,7 @@ class AudioPlayerService extends ChangeNotifier {
     MusicTrack track, {
     required MediaItem tag,
   }) async {
-    final streamUrl = _audiusApiService.resolveStreamUrl(track).trim();
+    final streamUrl = _streamUrlForTrack(track);
 
     try {
       return await _setRemoteUrl(
@@ -1564,15 +1595,23 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   String _streamUrlForTrack(MusicTrack track) {
-    return track.hasValidLocalSource
-        ? track.localPath!.trim()
-        : _audiusApiService.resolveStreamUrl(track).trim();
+    if (track.hasValidLocalSource) {
+      return track.localPath!.trim();
+    }
+    final embeddedUrl = track.streamUrl?.trim() ?? '';
+    if (embeddedUrl.isNotEmpty) {
+      final parsed = Uri.tryParse(embeddedUrl);
+      if (parsed != null && parsed.hasScheme && parsed.hasAuthority) {
+        return embeddedUrl;
+      }
+    }
+    return _audiusApiService.resolveStreamUrl(track).trim();
   }
 
   String _trackLoadKey(MusicTrack track) {
     return track.hasValidLocalSource
         ? '${track.id}:${track.localPath}'
-        : '${track.id}:${_audiusApiService.resolveStreamUrl(track)}';
+        : '${track.id}:${_streamUrlForTrack(track)}';
   }
 
   bool _matchesQueueOrder(List<MusicTrack> tracks) {

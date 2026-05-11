@@ -23,6 +23,27 @@ import 'download_service.dart';
 import 'local_storage_service.dart';
 
 class LibraryService extends ChangeNotifier {
+  static const List<String> _startupDiscoveryKeywords = <String>[
+    'The Weeknd',
+    'Juice WRLD',
+    'Doja Cat',
+    'The Kid LAROI',
+    'Tyler, The Creator',
+    'YUNGBLUD',
+    'Dabzee',
+    'Fejo',
+    'Seedhe Maut',
+    'ThirumaLi',
+    'Baby Jean',
+    'Raja Kumari',
+    'Martin Garrix',
+    'Kygo',
+    'The Chainsmokers',
+    'K-391',
+    'Illenium',
+    'KSHMR',
+  ];
+
   LibraryService({
     required AudiusApiService audiusApiService,
     required LocalStorageService localStorageService,
@@ -63,6 +84,8 @@ class LibraryService extends ChangeNotifier {
   String? _lastPersistedPlayerSessionJson;
   String? _lastRecentlyPlayedCacheKey;
   DateTime? _lastRecentlyPlayedAt;
+  String? _lastRecordedSearchQuery;
+  DateTime? _lastRecordedSearchAt;
   bool _starterPlaylistsInitialized = false;
 
   bool isLoading = true;
@@ -83,6 +106,9 @@ class LibraryService extends ChangeNotifier {
   final Map<String, MusicTrack> _trackOverrides = <String, MusicTrack>{};
   final Set<String> _likedTrackIds = <String>{};
   final List<String> _recentTrackIds = <String>[];
+  final Map<String, int> _searchQueryCounts = <String, int>{};
+  final Map<String, int> _artistPreferenceCounts = <String, int>{};
+  final Map<String, int> _trackPreferenceCounts = <String, int>{};
   final Map<String, double> _downloadProgress = <String, double>{};
   String? _activePlaylistPlaybackId;
   String selectedSearchTag = 'crabify';
@@ -113,6 +139,197 @@ class LibraryService extends ChangeNotifier {
       result.putIfAbsent(track.cacheKey, () => track);
     }
     return result.values.toList();
+  }
+
+  List<MusicTrack> get homeQuickPicks {
+    final result = <String, MusicTrack>{};
+    final recentCandidates =
+        recentTracks.where(_isHomeEligibleTrack).toList(growable: false);
+    final priorityTracks =
+        recentCandidates.isNotEmpty ? recentCandidates : freshFromCrabifyTracks;
+    for (final track in priorityTracks) {
+      result.putIfAbsent(track.cacheKey, () => track);
+      if (result.length >= 4) {
+        break;
+      }
+    }
+    return result.values.toList(growable: false);
+  }
+
+  List<MusicTrack> get freshFromCrabifyTracks {
+    final result = <String, MusicTrack>{};
+    for (final track in _homeOnlineCandidates) {
+      result.putIfAbsent(track.cacheKey, () => track);
+    }
+    return result.values.toList(growable: false);
+  }
+
+  Iterable<MusicTrack> get _homeOnlineCandidates sync* {
+    final yielded = <String>{};
+    for (final track in onlineTracks) {
+      final resolved = _resolveHomeOnlineTrack(track);
+      if (!_isHomeEligibleTrack(resolved)) {
+        continue;
+      }
+      if (!yielded.add(resolved.cacheKey)) {
+        continue;
+      }
+      yield resolved;
+    }
+  }
+
+  List<MusicCollection> get homePlaylists =>
+      playlists
+          .where(
+            (playlist) =>
+                !DemoCatalog.starterPlaylistIds.contains(playlist.id) &&
+                tracksForCollection(playlist).length >= 3,
+          )
+          .toList();
+
+  List<ArtistProfile> get homeArtists =>
+      artists
+          .where((artist) => tracksForArtist(artist).length >= 3)
+          .take(6)
+          .toList();
+
+  List<MusicTrack> get recommendedForTodayTracks {
+    final candidatePool = <String, MusicTrack>{};
+    for (final track in _homeOnlineCandidates) {
+      candidatePool.putIfAbsent(track.cacheKey, () => track);
+    }
+
+    if (candidatePool.isEmpty) {
+      return const <MusicTrack>[];
+    }
+
+    final candidateList = candidatePool.values.toList(growable: false);
+    final recentWeightById = <String, int>{};
+    for (var index = 0; index < _recentTrackIds.length; index += 1) {
+      final trackId = _recentTrackIds[index];
+      recentWeightById[trackId] = 140 - (index * 6);
+    }
+
+    final likedArtistWeights = <String, int>{};
+    final recentArtistWeights = <String, int>{};
+    final likedGenres = <String, int>{};
+    final recentGenres = <String, int>{};
+    for (final track in likedTracks) {
+      for (final artistId in track.creditedArtistIds) {
+        likedArtistWeights.update(artistId, (value) => value + 26, ifAbsent: () => 26);
+      }
+      final genre = track.genre?.trim().toLowerCase();
+      if (genre != null && genre.isNotEmpty) {
+        likedGenres.update(genre, (value) => value + 12, ifAbsent: () => 12);
+      }
+    }
+    for (var index = 0; index < recentTracks.length; index += 1) {
+      final track = recentTracks[index];
+      final weight = 18 - index;
+      for (final artistId in track.creditedArtistIds) {
+        recentArtistWeights.update(
+          artistId,
+          (value) => value + weight,
+          ifAbsent: () => weight,
+        );
+      }
+      final genre = track.genre?.trim().toLowerCase();
+      if (genre != null && genre.isNotEmpty) {
+        recentGenres.update(
+          genre,
+          (value) => value + weight,
+          ifAbsent: () => weight,
+        );
+      }
+    }
+
+    final topQueries =
+        _searchQueryCounts.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+    final searchSignals = topQueries.take(6).toList(growable: false);
+
+    final scored =
+        candidateList.map((track) {
+            var score = 0;
+            score += _trackPreferenceCounts[track.cacheKey] ?? 0;
+            score += recentWeightById[track.id] ?? 0;
+            if (_likedTrackIds.contains(track.id)) {
+              score += 120;
+            }
+
+            for (final artistId in track.creditedArtistIds) {
+              score += _artistPreferenceCounts[artistId] ?? 0;
+              score += likedArtistWeights[artistId] ?? 0;
+              score += recentArtistWeights[artistId] ?? 0;
+            }
+
+            final genre = track.genre?.trim().toLowerCase();
+            if (genre != null && genre.isNotEmpty) {
+              score += likedGenres[genre] ?? 0;
+              score += recentGenres[genre] ?? 0;
+            }
+
+            final haystack =
+                <String>[
+                  track.title,
+                  track.artistName,
+                  track.albumTitle,
+                  track.genre ?? '',
+                  track.description ?? '',
+                ].join(' ').toLowerCase();
+            for (final entry in searchSignals) {
+              final query = entry.key;
+              if (query.isEmpty || !haystack.contains(query)) {
+                continue;
+              }
+              score += entry.value * (track.artistName.toLowerCase().contains(query) ? 18 : 10);
+            }
+
+            if (track.isOfflineAvailable) {
+              score += 14;
+            }
+
+            return _RankedTrack(track: track, score: score);
+          }).where((entry) => entry.score > 0).toList(growable: false)
+          ..sort((a, b) {
+            final scoreCompare = b.score.compareTo(a.score);
+            if (scoreCompare != 0) {
+              return scoreCompare;
+            }
+            final recentCompare =
+                (recentWeightById[b.track.id] ?? 0).compareTo(
+                  recentWeightById[a.track.id] ?? 0,
+                );
+            if (recentCompare != 0) {
+              return recentCompare;
+            }
+            return a.track.title.compareTo(b.track.title);
+          });
+
+    final recommendations = <String, MusicTrack>{};
+    for (final entry in scored) {
+      final resolved = _resolveHomeTrack(entry.track);
+      if (!resolved.isPlayable) {
+        continue;
+      }
+      recommendations.putIfAbsent(resolved.cacheKey, () => resolved);
+      if (recommendations.length >= 12) {
+        break;
+      }
+    }
+
+    for (final track in _freshRecommendationFallback(candidateList)) {
+      final resolved = _resolveHomeTrack(track);
+      if (!resolved.isPlayable) {
+        continue;
+      }
+      recommendations.putIfAbsent(resolved.cacheKey, () => resolved);
+      if (recommendations.length >= 12) {
+        break;
+      }
+    }
+
+    return recommendations.values.toList(growable: false);
   }
 
   Map<String, double> get downloadProgress =>
@@ -287,9 +504,7 @@ class LibraryService extends ChangeNotifier {
     }
 
     try {
-      final freshTracks = await _audiusApiService.fetchTrendingTracks(
-        limit: 64,
-      );
+      final freshTracks = await _buildOnlineDiscoveryTracks();
       onlineTracks = freshTracks;
       _applyTrackOverrides();
       _rememberTracks(freshTracks);
@@ -331,6 +546,8 @@ class LibraryService extends ChangeNotifier {
     if (trimmed.isEmpty) {
       return <MusicTrack>[];
     }
+
+    _recordSearchQuery(trimmed);
 
     final localResults = DemoCatalog.searchTracks(allTracks, trimmed);
     List<MusicTrack> remoteResults = <MusicTrack>[];
@@ -433,19 +650,20 @@ class LibraryService extends ChangeNotifier {
   bool canDownloadTrack(MusicTrack track) =>
       downloadDisabledReason(track) == null;
   String? downloadDisabledReason(MusicTrack track) {
+    final resolvedTrack = _resolveTrackForPlayback(track);
     if (_downloadProgress.containsKey(track.id)) {
       return 'Download already in progress.';
     }
-    if (track.hasValidLocalSource) {
+    if (resolvedTrack.hasValidLocalSource) {
       return 'This track is already stored locally.';
     }
     if (isDownloaded(track.id)) {
       return 'This track is already downloaded.';
     }
-    if (!track.downloadable) {
+    if (!resolvedTrack.downloadable) {
       return 'The artist has not enabled downloading for this track.';
     }
-    if (!track.hasValidRemoteSource) {
+    if (!resolvedTrack.hasValidRemoteSource) {
       return 'This track is not available for offline download right now.';
     }
     return null;
@@ -484,6 +702,7 @@ class LibraryService extends ChangeNotifier {
     }
     final track = trackSnapshot ?? trackById(trackId);
     if (track != null) {
+      _recordTrackPreference(track);
       _updateLastPlayedPlaylistCovers(track);
       _updateArtistLastPlayedCover(track);
     }
@@ -514,7 +733,9 @@ class LibraryService extends ChangeNotifier {
     String? playlistContextId,
   }) async {
     _activePlaylistPlaybackId = playlistContextId;
-    final playableTracks = await _resolvePlayableTracks(tracks);
+    final normalizedTracks =
+        tracks.map(_resolveTrackForPlayback).toList(growable: false);
+    final playableTracks = await _resolvePlayableTracks(normalizedTracks);
     if (playableTracks.isEmpty) {
       final message = 'No playable tracks are available right now.';
       debugPrint('[Audio] $message');
@@ -550,6 +771,23 @@ class LibraryService extends ChangeNotifier {
     }
 
     try {
+      if (!selectedTrack.hasValidLocalSource && selectedTrack.hasValidRemoteSource) {
+        final freshStreamUrl = await _audiusApiService.resolveFreshPlaybackUrl(
+          selectedTrack,
+        );
+        selectedTrack = selectedTrack.copyWith(streamUrl: freshStreamUrl);
+        final selectedIndex = playableTracks.indexWhere(
+          (track) => track.cacheKey == selectedTrack!.cacheKey,
+        );
+        if (selectedIndex >= 0) {
+          final nextTracks = List<MusicTrack>.from(playableTracks);
+          nextTracks[selectedIndex] = selectedTrack;
+          playableTracks
+            ..clear()
+            ..addAll(nextTracks);
+        }
+      }
+      _recordTrackSelection(selectedTrack);
       _rememberTracks(playableTracks);
       await _audioPlayerService.setQueue(
         playableTracks,
@@ -567,14 +805,32 @@ class LibraryService extends ChangeNotifier {
     List<MusicTrack> tracks, {
     String? playlistContextId,
   }) async {
-    final playableTracks = await _resolvePlayableTracks(tracks);
+    final normalizedTracks =
+        tracks.map(_resolveTrackForPlayback).toList(growable: false);
+    final playableTracks = await _resolvePlayableTracks(normalizedTracks);
     if (playableTracks.isEmpty) {
       _audioPlayerService.reportError('No playable tracks are available right now.');
       return;
     }
 
-    final selectedTrack = playableTracks[_random.nextInt(playableTracks.length)];
+    var selectedTrack = playableTracks[_random.nextInt(playableTracks.length)];
     try {
+      if (!selectedTrack.hasValidLocalSource && selectedTrack.hasValidRemoteSource) {
+        final freshStreamUrl = await _audiusApiService.resolveFreshPlaybackUrl(
+          selectedTrack,
+        );
+        selectedTrack = selectedTrack.copyWith(streamUrl: freshStreamUrl);
+        final selectedIndex = playableTracks.indexWhere(
+          (track) => track.cacheKey == selectedTrack.cacheKey,
+        );
+        if (selectedIndex >= 0) {
+          final nextTracks = List<MusicTrack>.from(playableTracks);
+          nextTracks[selectedIndex] = selectedTrack;
+          playableTracks
+            ..clear()
+            ..addAll(nextTracks);
+        }
+      }
       _activePlaylistPlaybackId = playlistContextId;
       _rememberTracks(playableTracks);
       await _audioPlayerService.setQueue(
@@ -687,6 +943,7 @@ class LibraryService extends ChangeNotifier {
     await playTracks(
       orderedTracks,
       selectedTrackId: orderedTracks.first.id,
+      selectedTrackCacheKey: orderedTracks.first.cacheKey,
       shuffle: false,
     );
   }
@@ -918,42 +1175,43 @@ class LibraryService extends ChangeNotifier {
   }
 
   Future<void> downloadTrack(MusicTrack track) async {
-    final disabledReason = downloadDisabledReason(track);
+    final resolvedTrack = _resolveTrackForPlayback(track);
+    final disabledReason = downloadDisabledReason(resolvedTrack);
     if (disabledReason != null) {
       throw StateError(disabledReason);
     }
 
-    if (!track.isPlayable) {
+    if (!resolvedTrack.isPlayable) {
       return;
     }
 
     final sourceUrl =
-        track.isLocal
-            ? track.localPath!
-            : await _audiusApiService.resolveFreshPlaybackUrl(track);
-    _downloadProgress[track.id] = 0;
+        resolvedTrack.isLocal
+            ? resolvedTrack.localPath!
+            : await _audiusApiService.resolveFreshPlaybackUrl(resolvedTrack);
+    _downloadProgress[resolvedTrack.id] = 0;
     notifyListeners();
 
     try {
       final downloadedTrack = await _downloadService.downloadTrack(
-        track: track,
+        track: resolvedTrack,
         sourceUrl: sourceUrl,
         onProgress: (progress) {
-          _downloadProgress[track.id] = progress;
+          _downloadProgress[resolvedTrack.id] = progress;
           notifyListeners();
         },
       );
 
       downloadedTracks = _upsertTrack(downloadedTracks, downloadedTrack);
       _rememberTrack(downloadedTrack);
-      _downloadProgress.remove(track.id);
+      _downloadProgress.remove(resolvedTrack.id);
       _syncArtistPlaylists();
       _refreshPlaylistCoverArtwork();
       _refreshArtistCoverArtwork();
       await _persistState();
       notifyListeners();
     } catch (error) {
-      _downloadProgress.remove(track.id);
+      _downloadProgress.remove(resolvedTrack.id);
       notifyListeners();
       rethrow;
     }
@@ -2428,7 +2686,325 @@ class LibraryService extends ChangeNotifier {
     if (!track.hasValidId) {
       return;
     }
-    _retainedTracks[track.id] = _applyTrackOverride(track);
+    _retainedTracks[track.id] = _resolveTrackForPlayback(track);
+  }
+
+  MusicTrack _resolveHomeTrack(MusicTrack track) {
+    final base = _applyTrackOverride(track);
+    final relatedCandidates = _trackCandidatesFor(base);
+    if (relatedCandidates.isEmpty) {
+      return base;
+    }
+
+    MusicTrack? playbackCandidate;
+    MusicTrack? artworkCandidate;
+    MusicTrack? metadataCandidate;
+    var bestPlaybackScore = -1;
+    var bestArtworkScore = -1;
+    var bestMetadataScore = -1;
+
+    for (final candidate in relatedCandidates) {
+      final hasExistingLocalSource =
+          (candidate.localPath?.trim().isNotEmpty ?? false) &&
+          File(candidate.localPath!).existsSync();
+      final hasExistingArtworkPath =
+          (candidate.artworkPath?.trim().isNotEmpty ?? false) &&
+          File(candidate.artworkPath!).existsSync();
+      final playbackScore =
+          (hasExistingLocalSource ? 160 : 0) +
+          (candidate.hasValidRemoteSource ? 120 : 0) +
+          ((candidate.sourcePath?.trim().isNotEmpty ?? false) ? 20 : 0) +
+          ((candidate.streamUrl?.trim().isNotEmpty ?? false) ? 16 : 0);
+      if (playbackScore > bestPlaybackScore) {
+        bestPlaybackScore = playbackScore;
+        playbackCandidate = candidate;
+      }
+
+      final artworkScore =
+          (hasExistingArtworkPath ? 80 : 0) +
+          ((candidate.artworkUrl?.trim().isNotEmpty ?? false) ? 72 : 0);
+      if (artworkScore > bestArtworkScore) {
+        bestArtworkScore = artworkScore;
+        artworkCandidate = candidate;
+      }
+
+      final metadataScore =
+          (candidate.title.trim().isNotEmpty ? 20 : 0) +
+          (candidate.artistName.trim().isNotEmpty ? 18 : 0) +
+          (candidate.albumTitle.trim().isNotEmpty ? 12 : 0) +
+          ((candidate.genre?.trim().isNotEmpty ?? false) ? 10 : 0) +
+          ((candidate.description?.trim().isNotEmpty ?? false) ? 8 : 0) +
+          (candidate.durationSeconds != null ? 6 : 0);
+      if (metadataScore > bestMetadataScore) {
+        bestMetadataScore = metadataScore;
+        metadataCandidate = candidate;
+      }
+    }
+
+    final preferredPlayback = playbackCandidate ?? base;
+    final preferredArtwork = artworkCandidate ?? preferredPlayback;
+    final preferredMetadata = metadataCandidate ?? preferredPlayback;
+
+    return base.copyWith(
+      title:
+          base.title.trim().isNotEmpty
+              ? base.title
+              : preferredMetadata.title,
+      artistName:
+          base.artistName.trim().isNotEmpty
+              ? base.artistName
+              : preferredMetadata.artistName,
+      artistId:
+          base.artistId.trim().isNotEmpty
+              ? base.artistId
+              : preferredMetadata.artistId,
+      artistNames:
+          base.artistNames.isNotEmpty
+              ? base.artistNames
+              : preferredMetadata.artistNames,
+      artistIds:
+          base.artistIds.isNotEmpty ? base.artistIds : preferredMetadata.artistIds,
+      albumTitle:
+          base.albumTitle.trim().isNotEmpty
+              ? base.albumTitle
+              : preferredMetadata.albumTitle,
+      albumId: base.albumId ?? preferredMetadata.albumId,
+      artworkPath:
+          (base.artworkPath?.trim().isNotEmpty ?? false)
+              ? base.artworkPath
+              : preferredArtwork.artworkPath,
+      artworkUrl:
+          (base.artworkUrl?.trim().isNotEmpty ?? false)
+              ? base.artworkUrl
+              : preferredArtwork.artworkUrl,
+      description: base.description ?? preferredMetadata.description,
+      genre: base.genre ?? preferredMetadata.genre,
+      streamUrl:
+          (base.streamUrl?.trim().isNotEmpty ?? false)
+              ? base.streamUrl
+              : preferredPlayback.streamUrl,
+      localPath:
+          (base.localPath?.trim().isNotEmpty ?? false)
+              ? base.localPath
+              : preferredPlayback.localPath,
+      sourcePath:
+          (base.sourcePath?.trim().isNotEmpty ?? false)
+              ? base.sourcePath
+              : preferredPlayback.sourcePath,
+      durationSeconds: base.durationSeconds ?? preferredMetadata.durationSeconds,
+      downloadable: base.downloadable || preferredPlayback.downloadable,
+      isStreamable: base.isStreamable || preferredPlayback.isStreamable,
+    );
+  }
+
+  MusicTrack _resolveTrackForPlayback(MusicTrack track) {
+    final resolvedBase = _resolveHomeTrack(track);
+    final resolved =
+        (resolvedBase.localPath?.trim().isNotEmpty ?? false) &&
+                !File(resolvedBase.localPath!).existsSync()
+            ? resolvedBase.copyWith(clearLocalPath: true)
+            : resolvedBase;
+    if (resolved.isPlayable) {
+      return resolved;
+    }
+
+    for (final candidate in _trackCandidatesFor(resolved)) {
+      if (!candidate.isPlayable) {
+        continue;
+      }
+      return resolved.copyWith(
+        streamUrl: candidate.streamUrl,
+        localPath: candidate.localPath,
+        sourcePath: candidate.sourcePath,
+        durationSeconds: resolved.durationSeconds ?? candidate.durationSeconds,
+        downloadable: resolved.downloadable || candidate.downloadable,
+        isStreamable: resolved.isStreamable || candidate.isStreamable,
+        artworkPath:
+            (resolved.artworkPath?.trim().isNotEmpty ?? false)
+                ? resolved.artworkPath
+                : candidate.artworkPath,
+        artworkUrl:
+            (resolved.artworkUrl?.trim().isNotEmpty ?? false)
+                ? resolved.artworkUrl
+                : candidate.artworkUrl,
+      );
+    }
+
+    return resolved;
+  }
+
+  MusicTrack _resolveHomeOnlineTrack(MusicTrack track) {
+    final resolved = _resolveHomeTrack(track);
+    final remoteArtworkTrack = _trackCandidatesFor(track).firstWhere(
+      (candidate) =>
+          candidate.origin == TrackOrigin.online &&
+          (candidate.artworkUrl?.trim().isNotEmpty ?? false),
+      orElse: () => track,
+    );
+    return resolved.copyWith(
+      origin: TrackOrigin.online,
+      streamUrl:
+          (track.streamUrl?.trim().isNotEmpty ?? false)
+              ? track.streamUrl
+              : resolved.streamUrl,
+      localPath: null,
+      sourcePath: null,
+      clearLocalPath: true,
+      clearSourcePath: true,
+      artworkUrl:
+          (resolved.artworkUrl?.trim().isNotEmpty ?? false)
+              ? resolved.artworkUrl
+              : remoteArtworkTrack.artworkUrl,
+      artworkPath:
+          (resolved.artworkPath?.trim().isNotEmpty ?? false) &&
+                  File(resolved.artworkPath!).existsSync()
+              ? resolved.artworkPath
+              : null,
+      clearArtworkPath:
+          !((resolved.artworkPath?.trim().isNotEmpty ?? false) &&
+              File(resolved.artworkPath!).existsSync()),
+      isStreamable: track.isStreamable || resolved.isStreamable,
+      downloadable: track.downloadable || resolved.downloadable,
+    );
+  }
+
+  bool _isHomeEligibleTrack(MusicTrack track) {
+    if (!track.isPlayable) {
+      return false;
+    }
+    return _hasUsableArtwork(track);
+  }
+
+  bool _hasUsableArtwork(MusicTrack track) {
+    final artworkPath = track.artworkPath?.trim();
+    if (artworkPath != null && artworkPath.isNotEmpty && File(artworkPath).existsSync()) {
+      return true;
+    }
+    final artworkUrl = track.artworkUrl?.trim();
+    return artworkUrl != null && artworkUrl.isNotEmpty;
+  }
+
+  Future<List<MusicTrack>> _buildOnlineDiscoveryTracks() async {
+    final discovered = <String, MusicTrack>{};
+    final orderedKeywords = _orderedDiscoveryKeywords();
+    final startupKeywords = orderedKeywords.take(5).toList(growable: false);
+    final keywordMatches = await Future.wait(
+      startupKeywords.map(_safeDiscoverySearch),
+    );
+
+    for (final matches in keywordMatches) {
+      for (final track in matches) {
+        final resolved = _resolveHomeOnlineTrack(track);
+        if (!_isHomeEligibleTrack(resolved)) {
+          continue;
+        }
+        discovered.putIfAbsent(resolved.cacheKey, () => resolved);
+        if (discovered.length >= 36) {
+          return discovered.values.toList(growable: false);
+        }
+      }
+    }
+
+    final trending = await _audiusApiService.fetchTrendingTracks(limit: 24);
+    for (final track in trending) {
+      final resolved = _resolveHomeOnlineTrack(track);
+      if (!_isHomeEligibleTrack(resolved)) {
+        continue;
+      }
+      discovered.putIfAbsent(resolved.cacheKey, () => resolved);
+      if (discovered.length >= 36) {
+        break;
+      }
+    }
+
+    if (discovered.isNotEmpty) {
+      return discovered.values.toList(growable: false);
+    }
+
+    return DemoCatalog.onlineTracks()
+        .where(_isHomeEligibleTrack)
+        .toList(growable: false);
+  }
+
+  Future<List<MusicTrack>> _safeDiscoverySearch(String keyword) async {
+    try {
+      return await _audiusApiService.searchTracks(keyword, limit: 8);
+    } catch (error) {
+      debugPrint('[Audius] Discovery search failed for "$keyword": $error');
+      return const <MusicTrack>[];
+    }
+  }
+
+  List<String> _orderedDiscoveryKeywords() {
+    final recentArtistSet =
+        recentTracks
+            .expand((track) => track.creditedArtistIds)
+            .toSet();
+    final likedArtistSet =
+        likedTracks
+            .expand((track) => track.creditedArtistIds)
+            .toSet();
+    final queryEntries = _searchQueryCounts.entries.toList(growable: false);
+
+    final ranked = _startupDiscoveryKeywords.map((keyword) {
+      final normalizedKeyword = canonicalArtistIdentity(keyword);
+      var score = 0;
+      score += _artistPreferenceCounts[normalizedKeyword] ?? 0;
+      if (recentArtistSet.contains(normalizedKeyword)) {
+        score += 60;
+      }
+      if (likedArtistSet.contains(normalizedKeyword)) {
+        score += 90;
+      }
+      for (final entry in queryEntries) {
+        if (_keywordMatchesQuery(keyword, entry.key)) {
+          score += entry.value * 12;
+        }
+      }
+      return (keyword: keyword, score: score);
+    }).toList()
+      ..sort((a, b) {
+        final scoreCompare = b.score.compareTo(a.score);
+        if (scoreCompare != 0) {
+          return scoreCompare;
+        }
+        return a.keyword.compareTo(b.keyword);
+      });
+
+    return ranked.map((entry) => entry.keyword).toList(growable: false);
+  }
+
+  bool _keywordMatchesQuery(String keyword, String query) {
+    final normalizedKeyword = keyword.trim().toLowerCase();
+    final normalizedQuery = query.trim().toLowerCase();
+    if (normalizedKeyword.isEmpty || normalizedQuery.isEmpty) {
+      return false;
+    }
+    return normalizedKeyword.contains(normalizedQuery) ||
+        normalizedQuery.contains(normalizedKeyword);
+  }
+
+  List<MusicTrack> _trackCandidatesFor(MusicTrack track) {
+    final matches = <String, MusicTrack>{};
+    void collect(Iterable<MusicTrack> source) {
+      for (final candidate in source) {
+        if (candidate.cacheKey != track.cacheKey && candidate.id != track.id) {
+          continue;
+        }
+        matches.putIfAbsent(
+          '${candidate.cacheKey}|${candidate.localPath ?? ''}|${candidate.streamUrl ?? ''}',
+          () => _applyTrackOverride(candidate),
+        );
+      }
+    }
+
+    collect(<MusicTrack>[track]);
+    collect(downloadedTracks);
+    collect(importedTracks);
+    collect(uploadedTracks);
+    collect(onlineTracks);
+    collect(_retainedTracks.values);
+    return matches.values.toList(growable: false);
   }
 
   List<MusicTrack> _upsertTrack(List<MusicTrack> tracks, MusicTrack candidate) {
@@ -2487,42 +3063,21 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  void _syncStarterPlaylistsWithOnlineTracks() {
-    if (onlineTracks.isEmpty) {
+  Future<void> recordArtistSelection(ArtistProfile artist) async {
+    final artistId = canonicalArtistIdentity(artist.id);
+    if (artistId.isEmpty) {
       return;
     }
-
-    final starterPlaylists = DemoCatalog.starterPlaylists(onlineTracks);
-    final existingStarterPlaylists =
-        playlists
-            .where(
-              (playlist) =>
-                  DemoCatalog.starterPlaylistIds.contains(playlist.id),
-            )
-            .toList();
-
-    final shouldRefreshStarterPlaylists =
-        (!_starterPlaylistsInitialized && playlists.isEmpty) ||
-        existingStarterPlaylists.any(_playlistReferencesMissingTracks);
-
-    if (!shouldRefreshStarterPlaylists) {
-      return;
-    }
-
-    final customPlaylists =
-        playlists
-            .where(
-              (playlist) =>
-                  !DemoCatalog.starterPlaylistIds.contains(playlist.id),
-            )
-            .toList();
-
-    playlists = <MusicCollection>[...starterPlaylists, ...customPlaylists];
-    _starterPlaylistsInitialized = true;
+    _artistPreferenceCounts.update(
+      artistId,
+      (value) => value + 20,
+      ifAbsent: () => 20,
+    );
+    _scheduleStatePersist(delay: const Duration(seconds: 2));
   }
 
-  bool _playlistReferencesMissingTracks(MusicCollection playlist) {
-    return playlist.trackIds.any((trackId) => trackById(trackId) == null);
+  void _syncStarterPlaylistsWithOnlineTracks() {
+    _removeStarterPlaylists();
   }
 
   bool _containsDemoTracks(List<MusicTrack> tracks) {
@@ -2561,6 +3116,7 @@ class LibraryService extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map(MusicCollection.fromJson)
             .toList();
+    _removeStarterPlaylists();
     _savedArtists =
         (state['savedArtists'] as List<dynamic>? ?? const <dynamic>[])
             .whereType<Map<String, dynamic>>()
@@ -2606,6 +3162,28 @@ class LibraryService extends ChangeNotifier {
             ),
       );
 
+    _searchQueryCounts
+      ..clear()
+      ..addAll(
+        ((state['searchQueryCounts'] as Map<String, dynamic>?) ??
+                const <String, dynamic>{})
+            .map((key, value) => MapEntry(key, (value as num).toInt())),
+      );
+    _artistPreferenceCounts
+      ..clear()
+      ..addAll(
+        ((state['artistPreferenceCounts'] as Map<String, dynamic>?) ??
+                const <String, dynamic>{})
+            .map((key, value) => MapEntry(key, (value as num).toInt())),
+      );
+    _trackPreferenceCounts
+      ..clear()
+      ..addAll(
+        ((state['trackPreferenceCounts'] as Map<String, dynamic>?) ??
+                const <String, dynamic>{})
+            .map((key, value) => MapEntry(key, (value as num).toInt())),
+      );
+
     _starterPlaylistsInitialized =
         state['starterPlaylistsInitialized'] as bool? ?? playlists.isNotEmpty;
     selectedSearchTag =
@@ -2632,6 +3210,9 @@ class LibraryService extends ChangeNotifier {
       'trackOverrides': _trackOverrides.map(
         (key, track) => MapEntry(key, track.toJson()),
       ),
+      'searchQueryCounts': _searchQueryCounts,
+      'artistPreferenceCounts': _artistPreferenceCounts,
+      'trackPreferenceCounts': _trackPreferenceCounts,
       'starterPlaylistsInitialized': _starterPlaylistsInitialized,
       'selectedSearchTag': selectedSearchTag,
       'selectedLibraryFilter': selectedLibraryFilter,
@@ -2658,6 +3239,103 @@ class LibraryService extends ChangeNotifier {
       (mode) => mode.name == value,
       orElse: () => LoopMode.off,
     );
+  }
+
+  void _removeStarterPlaylists() {
+    playlists =
+        playlists
+            .where(
+              (playlist) =>
+                  !DemoCatalog.starterPlaylistIds.contains(playlist.id),
+            )
+            .toList();
+    _starterPlaylistsInitialized = true;
+  }
+
+  void _recordSearchQuery(String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.length < 3) {
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastRecordedSearchQuery == normalized &&
+        _lastRecordedSearchAt != null &&
+        now.difference(_lastRecordedSearchAt!) < const Duration(seconds: 15)) {
+      return;
+    }
+    _lastRecordedSearchQuery = normalized;
+    _lastRecordedSearchAt = now;
+    _searchQueryCounts.update(
+      normalized,
+      (value) => value + 1,
+      ifAbsent: () => 1,
+    );
+    _scheduleStatePersist(delay: const Duration(seconds: 3));
+  }
+
+  void _recordTrackSelection(MusicTrack track) {
+    _trackPreferenceCounts.update(
+      track.cacheKey,
+      (value) => value + 20,
+      ifAbsent: () => 20,
+    );
+    for (final artistId in track.creditedArtistIds) {
+      _artistPreferenceCounts.update(
+        artistId,
+        (value) => value + 14,
+        ifAbsent: () => 14,
+      );
+    }
+    _scheduleStatePersist(delay: const Duration(seconds: 2));
+  }
+
+  void _recordTrackPreference(MusicTrack track) {
+    _trackPreferenceCounts.update(
+      track.cacheKey,
+      (value) => value + 48,
+      ifAbsent: () => 48,
+    );
+    for (final artistId in track.creditedArtistIds) {
+      _artistPreferenceCounts.update(
+        artistId,
+        (value) => value + 32,
+        ifAbsent: () => 32,
+      );
+    }
+  }
+
+  Iterable<MusicTrack> _freshRecommendationFallback(List<MusicTrack> tracks) sync* {
+    final onlineByArtist = <String, List<MusicTrack>>{};
+    for (final track in _homeOnlineCandidates) {
+      for (final artistId in track.creditedArtistIds) {
+        onlineByArtist.putIfAbsent(artistId, () => <MusicTrack>[]).add(track);
+      }
+    }
+
+    final rankedArtists =
+        onlineByArtist.entries.toList()
+          ..sort((a, b) {
+            final countCompare = b.value.length.compareTo(a.value.length);
+            if (countCompare != 0) {
+              return countCompare;
+            }
+            return a.key.compareTo(b.key);
+          });
+
+    final yielded = <String>{};
+    for (final entry in rankedArtists) {
+      for (final track in entry.value) {
+        if (yielded.add(track.cacheKey)) {
+          yield track;
+        }
+      }
+    }
+
+    for (final track in tracks) {
+      if (yielded.add(track.cacheKey)) {
+        yield track;
+      }
+    }
   }
 
   TrackRepeatMode _repeatModeFromName(String? value) {
@@ -2815,4 +3493,11 @@ class LibraryService extends ChangeNotifier {
     }
     return updatedTrack;
   }
+}
+
+class _RankedTrack {
+  const _RankedTrack({required this.track, required this.score});
+
+  final MusicTrack track;
+  final int score;
 }

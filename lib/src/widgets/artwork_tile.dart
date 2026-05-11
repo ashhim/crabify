@@ -29,7 +29,13 @@ class ArtworkTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = artworkPaletteForSeed(seed);
-    final imageChild = switch ((artworkPath, artworkUrl)) {
+    final resolvedArtworkPath =
+        artworkPath != null &&
+                artworkPath!.isNotEmpty &&
+                File(artworkPath!).existsSync()
+            ? artworkPath
+            : null;
+    final imageChild = switch ((resolvedArtworkPath, artworkUrl)) {
       (String localPath, _) when localPath.isNotEmpty => _ArtworkFrame(
         image: Image.file(
           File(localPath),
@@ -191,7 +197,9 @@ ImageProvider<Object>? _imageProviderForArtwork({
   String? artworkPath,
   String? artworkUrl,
 }) {
-  if (artworkPath != null && artworkPath.isNotEmpty) {
+  if (artworkPath != null &&
+      artworkPath.isNotEmpty &&
+      File(artworkPath).existsSync()) {
     return ResizeImage.resizeIfNeeded(48, 48, FileImage(File(artworkPath)));
   }
   if (artworkUrl != null && artworkUrl.isNotEmpty) {

@@ -9,7 +9,6 @@ import '../services/library_service.dart';
 import '../theme/crabify_theme.dart';
 import '../widgets/artwork_tile.dart';
 import '../widgets/track_actions.dart';
-import 'package:audio_visualizer/audio_visualizer.dart';
 
 class NowPlayingScreen extends StatelessWidget {
   const NowPlayingScreen({super.key});
@@ -252,6 +251,12 @@ class NowPlayingScreen extends StatelessWidget {
                       _PlaybackProgress(
                         track: track,
                         formatDuration: _formatDuration,
+                        activeColor: palette.controlColor,
+                        inactiveColor: Color.lerp(
+                          CrabifyColors.surfaceRaised,
+                          palette.controlColor,
+                          0.22,
+                        )!.withValues(alpha: 0.42),
                       ),
                       const SizedBox(height: 18),
                       _PlaybackControls(palette: palette),
@@ -361,10 +366,17 @@ class _PlaybackStatus extends StatelessWidget {
 }
 
 class _PlaybackProgress extends StatefulWidget {
-  const _PlaybackProgress({required this.track, required this.formatDuration});
+  const _PlaybackProgress({
+    required this.track,
+    required this.formatDuration,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
 
   final MusicTrack track;
   final String Function(Duration duration) formatDuration;
+  final Color activeColor;
+  final Color inactiveColor;
 
   @override
   State<_PlaybackProgress> createState() => _PlaybackProgressState();
@@ -460,10 +472,8 @@ class _PlaybackProgressState extends State<_PlaybackProgress> {
 
                   painter: _ECGWaveformPainter(
                     progress: progress,
-
-                    activeColor: Colors.redAccent,
-
-                    inactiveColor: Colors.white.withValues(alpha: 0.06),
+                    activeColor: widget.activeColor,
+                    inactiveColor: widget.inactiveColor,
 
                     waveform: List.generate(140, (index) {
                       final t =
@@ -530,7 +540,10 @@ class _ECGWaveformPainter extends CustomPainter {
           ..shader = LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Colors.redAccent.shade100, Colors.redAccent.shade700],
+            colors: <Color>[
+              _liftWaveformColor(activeColor, 0.14),
+              _liftWaveformColor(activeColor, -0.12),
+            ],
           ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     final inactivePaint =
@@ -568,7 +581,7 @@ class _ECGWaveformPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 7
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12)
-        ..color = Colors.redAccent.withValues(alpha: 0.28),
+        ..color = activeColor.withValues(alpha: 0.26),
     );
 
     canvas.drawPath(inactivePath, inactivePaint);
@@ -577,8 +590,18 @@ class _ECGWaveformPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ECGWaveformPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.waveform != waveform;
+    return oldDelegate.progress != progress ||
+        oldDelegate.waveform != waveform ||
+        oldDelegate.activeColor != activeColor ||
+        oldDelegate.inactiveColor != inactiveColor;
   }
+}
+
+Color _liftWaveformColor(Color color, double lightnessDelta) {
+  final hsl = HSLColor.fromColor(color);
+  return hsl
+      .withLightness((hsl.lightness + lightnessDelta).clamp(0.0, 1.0))
+      .toColor();
 }
 
 class _PlaybackControls extends StatelessWidget {
@@ -1023,36 +1046,3 @@ ButtonStyle _hoverIconButtonStyle({
   );
 }
 
-ButtonStyle _filledHoverIconButtonStyle({
-  required Color backgroundColor,
-  required Color foregroundColor,
-  required Size fixedSize,
-}) {
-  return ButtonStyle(
-    fixedSize: WidgetStatePropertyAll<Size>(fixedSize),
-    foregroundColor: WidgetStatePropertyAll<Color>(foregroundColor),
-    padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
-      EdgeInsets.all(10),
-    ),
-    visualDensity: VisualDensity.compact,
-    backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
-      if (states.contains(WidgetState.disabled)) {
-        return backgroundColor.withValues(alpha: 0.32);
-      }
-      if (states.contains(WidgetState.hovered) ||
-          states.contains(WidgetState.focused)) {
-        return Color.lerp(backgroundColor, Colors.white, 0.08);
-      }
-      return backgroundColor;
-    }),
-    overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
-      if (states.contains(WidgetState.pressed)) {
-        return foregroundColor.withValues(alpha: 0.12);
-      }
-      return null;
-    }),
-    shape: WidgetStatePropertyAll<OutlinedBorder>(
-      RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-    ),
-  );
-}

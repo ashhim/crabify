@@ -1,10 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/artist_profile.dart';
 import '../models/music_collection.dart';
 import '../models/music_track.dart';
-import '../services/audio_player_service.dart';
 import '../services/library_service.dart';
 import '../services/sleep_timer_service.dart';
 import '../theme/crabify_theme.dart';
@@ -22,39 +23,12 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<LibraryService>(
       builder: (context, library, _) {
-        final quickPicks =
-            library.recentTracks.isNotEmpty
-                ? library.recentTracks.take(4).toList()
-                : library.onlineTracks.take(4).toList();
-        final playlists = library.playlists.take(6).toList();
-        final onlineTracks = _uniqueTracks(library.onlineTracks);
-        final showPlaylistsShelf = playlists.length > 2;
-        final likedShelfTracks = library.likedTracks;
-        final recentShelfTracks = library.recentTracks;
-        final offlineShelfTracks = library.localTracks;
-        final preferredShelfSourceTracks =
-            likedShelfTracks.isNotEmpty
-                ? likedShelfTracks
-                : recentShelfTracks.isNotEmpty
-                ? recentShelfTracks
-                : offlineShelfTracks;
-        final preferredShelfTracks =
-            preferredShelfSourceTracks.take(6).toList();
-        final preferredShelfTitle =
-            likedShelfTracks.isNotEmpty
-                ? 'Liked songs'
-                : recentShelfTracks.isNotEmpty
-                ? 'Recent songs'
-                : 'Offline songs';
-        final localArtists =
-            library.artists
-                .where(
-                  (artist) => library
-                      .tracksForArtist(artist)
-                      .any((track) => track.isLocal),
-                )
-                .take(6)
-                .toList();
+        final quickPicks = library.homeQuickPicks;
+        final playlists = library.homePlaylists.take(6).toList();
+        final onlineTracks = _uniqueTracks(library.freshFromCrabifyTracks);
+        final showPlaylistsShelf = playlists.isNotEmpty;
+        final recommendedTracks = library.recommendedForTodayTracks;
+        final homeArtists = library.homeArtists;
 
         return Container(
           decoration: const BoxDecoration(
@@ -192,9 +166,9 @@ class HomeScreen extends StatelessWidget {
                       );
                     },
                   ),
-                  if (localArtists.isNotEmpty) ...<Widget>[
+                  if (homeArtists.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 28),
-                    if (localArtists.length >= 2) ...<Widget>[
+                    if (homeArtists.length >= 2) ...<Widget>[
                       _SectionHeader(title: 'Artist'),
                       const SizedBox(height: 14),
                     ],
@@ -209,7 +183,7 @@ class HomeScreen extends StatelessWidget {
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
                             itemBuilder: (context, index) {
-                              final artist = localArtists[index];
+                              final artist = homeArtists[index];
                               return _ArtistCard(
                                 artist: artist,
                                 width: cardWidth,
@@ -217,48 +191,46 @@ class HomeScreen extends StatelessWidget {
                             },
                             separatorBuilder:
                                 (_, __) => const SizedBox(width: 14),
-                            itemCount: localArtists.length,
+                            itemCount: homeArtists.length,
                           ),
                         );
                       },
                     ),
                   ],
-                  if (preferredShelfTracks.isNotEmpty) ...<Widget>[
+                  if (recommendedTracks.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 28),
-                    if (preferredShelfTracks.length >= 2) ...<Widget>[
-                      _SectionHeader(title: preferredShelfTitle),
-                      const SizedBox(height: 14),
-                    ],
-                    Column(
-                      children:
-                          preferredShelfTracks.map((track) {
-                            return ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              onTap:
-                                  () => library.playTracks(
-                                    preferredShelfSourceTracks,
-                                    selectedTrackId: track.id,
-                                    selectedTrackCacheKey: track.cacheKey,
-                                  ),
-                              leading: ArtworkTile(
-                                seed: track.cacheKey,
-                                artworkPath: track.artworkPath,
-                                artworkUrl: track.artworkUrl,
-                                size: 56,
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              title: Text(track.title),
-                              subtitle: Text(track.subtitle),
-                              trailing: IconButton(
-                                onPressed:
-                                    () => showTrackActionsSheet(
-                                      context,
-                                      track: track,
-                                    ),
-                                icon: const Icon(Icons.more_horiz_rounded),
-                              ),
-                            );
-                          }).toList(),
+                    _SectionHeader(title: 'Recommended for today'),
+                    const SizedBox(height: 14),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cardWidth = _responsiveCardWidth(
+                          constraints.maxWidth,
+                        );
+                        final sectionHeight = cardWidth + 96;
+                        return SizedBox(
+                          height: sectionHeight,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: recommendedTracks.length,
+                            itemBuilder: (context, index) {
+                              final track = recommendedTracks[index];
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 14),
+                                child: _TrackCard(
+                                  track: track,
+                                  width: cardWidth,
+                                  onTap:
+                                      () => library.playTracks(
+                                        recommendedTracks,
+                                        selectedTrackId: track.id,
+                                        selectedTrackCacheKey: track.cacheKey,
+                                      ),
+                                ),
+                              );
+                            },
+                          ),
+                        );
+                      },
                     ),
                   ] else ...<Widget>[
                     const SizedBox(height: 28),
@@ -467,19 +439,6 @@ class _PlaylistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final library = context.read<LibraryService>();
-    final tracks = library.tracksForCollection(collection);
-    final currentTrackCacheKey = context.select<AudioPlayerService, String?>(
-      (audio) => audio.currentTrack?.cacheKey,
-    );
-    final isPlaying = context.select<AudioPlayerService, bool>(
-      (audio) => audio.isPlaying,
-    );
-    final showPauseIcon =
-        isPlaying &&
-        currentTrackCacheKey != null &&
-        tracks.any((track) => track.cacheKey == currentTrackCacheKey);
-
     return SizedBox(
       width: width,
       child: InkWell(
@@ -504,30 +463,7 @@ class _PlaylistCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                   icon: Icons.queue_music_rounded,
                 ),
-                Positioned(
-                  right: 12,
-                  bottom: 12,
-                  child: InkWell(
-                    onTap:
-                        tracks.isEmpty
-                            ? null
-                            : () => library.playTracks(
-                              tracks,
-                              selectedTrackId: tracks.first.id,
-                              selectedTrackCacheKey: tracks.first.cacheKey,
-                            ),
-                    borderRadius: BorderRadius.circular(24),
-                    child: SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: Center(
-                        child: _HomePlaybackAssetIcon(
-                          paused: showPauseIcon,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                const SizedBox.shrink(),
               ],
             ),
             const SizedBox(height: 10),
@@ -550,29 +486,6 @@ class _PlaylistCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _HomePlaybackAssetIcon extends StatelessWidget {
-  const _HomePlaybackAssetIcon({required this.paused});
-
-  final bool paused;
-
-  @override
-  Widget build(BuildContext context) {
-    final assetPath = paused ? 'assets/icon/=.png' : 'assets/icon/icon.png';
-    return SizedBox.square(
-      dimension: 24,
-      child: Image(
-        key: ValueKey<String>(assetPath),
-        image: AssetImage(assetPath),
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-        isAntiAlias: true,
-        excludeFromSemantics: true,
-        gaplessPlayback: false,
       ),
     );
   }
@@ -661,6 +574,7 @@ class _ArtistCard extends StatelessWidget {
       width: width,
       child: InkWell(
         onTap: () {
+          unawaited(library.recordArtistSelection(artist));
           Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => ArtistDetailScreen(artist: artist),

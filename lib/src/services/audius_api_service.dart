@@ -27,10 +27,10 @@ class AudiusApiService {
 
   bool get hasUploadProxy => _uploadProxyEndpoint.isNotEmpty;
   String get seedBaseUrl => _seedBaseUrl;
+  String get activeBaseUrl => _discoveredBaseUrl ?? _seedBaseUrl;
 
   Future<List<MusicTrack>> fetchTrendingTracks({int limit = 12}) async {
-    await discoverProviderUrl();
-    final baseUrl = seedBaseUrl;
+    final baseUrl = await discoverProviderUrl();
     debugPrint('[Audius] Fetching trending tracks from $baseUrl');
 
     final response = await _dio.get<Map<String, dynamic>>(
@@ -58,8 +58,7 @@ class AudiusApiService {
       return fetchTrendingTracks(limit: limit);
     }
 
-    await discoverProviderUrl();
-    final baseUrl = seedBaseUrl;
+    final baseUrl = await discoverProviderUrl();
     debugPrint('[Audius] Searching "$trimmed"');
 
     final response = await _dio.get<Map<String, dynamic>>(
@@ -97,7 +96,7 @@ class AudiusApiService {
   String resolveStreamUrlById(String trackId) {
     return Uri(
       scheme: 'https',
-      host: 'api.audius.co',
+      host: Uri.parse(activeBaseUrl).host,
       path: '/v1/tracks/$trackId/stream',
     ).toString();
   }
